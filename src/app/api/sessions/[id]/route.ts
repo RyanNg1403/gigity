@@ -42,6 +42,9 @@ export async function GET(
       role: r.message?.role,
       gitBranch: r.gitBranch,
       cwd: r.cwd,
+      // Pass through compression metadata for context pressure visualization
+      subtype: r.subtype,
+      compactMetadata: r.compactMetadata,
     }));
 
   return NextResponse.json({ session, conversation });

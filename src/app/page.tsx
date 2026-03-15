@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -13,11 +13,12 @@ import {
   Cell,
   CartesianGrid,
 } from "recharts";
-import { RefreshCw, MessageSquare, Wrench, FolderOpen, Zap, TrendingUp, BarChart3 } from "lucide-react";
+import { MessageSquare, Wrench, FolderOpen, Zap, BarChart3, DollarSign } from "lucide-react";
+import { estimateCost } from "@/lib/cost";
 
 interface Analytics {
   dailyStats: { date: string; message_count: number; session_count: number; tool_call_count: number }[];
-  modelUsage: { model_used: string; session_count: number; output_tokens: number; input_tokens: number }[];
+  modelUsage: { model_used: string; session_count: number; output_tokens: number; input_tokens: number; cache_read_tokens: number; cache_creation_tokens: number; estimated_cost: number }[];
   topTools: { tool_name: string; count: number }[];
   hourlyActivity: { hour: number; count: number }[];
   totals: {
@@ -26,16 +27,11 @@ interface Analytics {
     total_tool_calls: number;
     total_output_tokens: number;
     total_input_tokens: number;
+    total_cache_read_tokens: number;
+    total_cache_creation_tokens: number;
+    total_cost: number;
   };
-  projectStats: { name: string; original_path: string; session_count: number; total_messages: number; total_tool_calls: number; total_input_tokens: number; total_output_tokens: number; total_cache_read_tokens: number }[];
-}
-
-interface SyncResult {
-  projectsScanned: number;
-  sessionsIndexed: number;
-  messagesIndexed: number;
-  toolCallsIndexed: number;
-  durationMs: number;
+  projectStats: { name: string; original_path: string; session_count: number; total_messages: number; total_tool_calls: number; total_input_tokens: number; total_output_tokens: number; total_cache_read_tokens: number; total_cache_creation_tokens: number }[];
 }
 
 const MODEL_COLORS: Record<string, string> = {
@@ -59,6 +55,13 @@ function formatNumber(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
+}
+
+function formatCost(n: number) {
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}K`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  if (n >= 0.01) return `$${n.toFixed(2)}`;
+  return `$${n.toFixed(3)}`;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,76 +102,52 @@ const STAT_CONFIGS = [
   { key: "sessions" as const, label: "Sessions", icon: MessageSquare, color: "text-emerald-400", borderColor: "border-l-emerald-500" },
   { key: "messages" as const, label: "Messages", icon: Zap, color: "text-amber-400", borderColor: "border-l-amber-500" },
   { key: "tools" as const, label: "Tool Calls", icon: Wrench, color: "text-rose-400", borderColor: "border-l-rose-500" },
+  { key: "cost" as const, label: "Est. Cost", icon: DollarSign, color: "text-green-400", borderColor: "border-l-green-500" },
 ];
 
 export default function Dashboard() {
   const [data, setData] = useState<Analytics | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
-    const res = await fetch("/api/analytics");
-    if (res.ok) setData(await res.json());
-    setLoading(false);
-  }, []);
-
-  const doSync = useCallback(async () => {
-    setSyncing(true);
-    try {
-      const res = await fetch("/api/sync", { method: "POST" });
-      if (res.ok) {
-        const result = await res.json();
-        setSyncResult(result);
-        await fetchData();
-      }
-    } finally {
-      setSyncing(false);
-    }
-  }, [fetchData]);
-
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    let cancelled = false;
+    const load = async () => {
+      const res = await fetch("/api/analytics");
+      if (!cancelled && res.ok) setData(await res.json());
+      if (!cancelled) setLoading(false);
+    };
+    load();
+
+    // Reload when sync completes from the sidebar
+    const handler = () => { load(); };
+    window.addEventListener("gigity:sync-complete", handler);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("gigity:sync-complete", handler);
+    };
+  }, []);
 
   const statValues = data ? {
     projects: data.projectStats.length,
     sessions: data.totals.total_sessions,
     messages: data.totals.total_messages,
     tools: data.totals.total_tool_calls,
+    cost: data.totals.total_cost,
   } : null;
 
   return (
     <div className="p-8 max-w-7xl mx-auto relative z-10">
       {/* Header */}
-      <div className="flex items-center justify-between mb-10">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-zinc-500 text-sm mt-1">Your Claude Code usage at a glance</p>
-        </div>
-        <button
-          onClick={doSync}
-          disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-all duration-200 shadow-lg shadow-indigo-600/20"
-        >
-          <RefreshCw size={15} className={syncing ? "animate-spin" : ""} />
-          {syncing ? "Syncing..." : "Sync Data"}
-        </button>
+      <div className="mb-10">
+        <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
+        <p className="text-zinc-500 text-sm mt-1">Your Claude Code usage at a glance</p>
       </div>
-
-      {syncResult && (
-        <div className="mb-8 p-3 bg-emerald-950/40 border border-emerald-800/50 rounded-lg text-sm text-emerald-400 flex items-center gap-2">
-          <TrendingUp size={14} />
-          Synced {syncResult.projectsScanned} projects, {syncResult.sessionsIndexed} sessions,{" "}
-          {syncResult.messagesIndexed} messages in {(syncResult.durationMs / 1000).toFixed(1)}s
-        </div>
-      )}
 
       {/* Loading skeleton */}
       {loading ? (
         <>
-          <div className="grid grid-cols-4 gap-4 mb-8">
-            {[1,2,3,4].map(i => <SkeletonCard key={i} />)}
+          <div className="grid grid-cols-5 gap-4 mb-8">
+            {[1,2,3,4,5].map(i => <SkeletonCard key={i} />)}
           </div>
           <SkeletonChart />
         </>
@@ -178,19 +157,12 @@ export default function Dashboard() {
             <BarChart3 size={28} className="text-zinc-600" />
           </div>
           <h3 className="text-lg font-medium text-zinc-300 mb-2">No data yet</h3>
-          <p className="text-zinc-500 text-sm mb-6">Click &quot;Sync Data&quot; to index your Claude Code sessions</p>
-          <button
-            onClick={doSync}
-            disabled={syncing}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
-          >
-            Sync Now
-          </button>
+          <p className="text-zinc-500 text-sm">Click &quot;Sync Data&quot; in the sidebar to index your Claude Code sessions</p>
         </div>
       ) : (
         <>
           {/* Stat cards with left border accent */}
-          <div className="grid grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-5 gap-4 mb-8">
             {STAT_CONFIGS.map((cfg) => (
               <div
                 key={cfg.key}
@@ -200,7 +172,9 @@ export default function Dashboard() {
                   <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">{cfg.label}</span>
                   <cfg.icon size={15} className={cfg.color} />
                 </div>
-                <p className="text-2xl font-bold tracking-tight">{formatNumber(statValues![cfg.key])}</p>
+                <p className="text-2xl font-bold tracking-tight">
+                  {cfg.key === "cost" ? formatCost(statValues![cfg.key]) : formatNumber(statValues![cfg.key])}
+                </p>
               </div>
             ))}
           </div>
@@ -299,25 +273,35 @@ export default function Dashboard() {
                   <th className="text-right pb-3 text-xs font-medium uppercase tracking-wider">Tools</th>
                   <th className="text-right pb-3 text-xs font-medium uppercase tracking-wider">Input Tok</th>
                   <th className="text-right pb-3 text-xs font-medium uppercase tracking-wider">Output Tok</th>
-                  <th className="text-right pb-3 text-xs font-medium uppercase tracking-wider">Cache Tok</th>
+                  <th className="text-right pb-3 text-xs font-medium uppercase tracking-wider">Est. Cost</th>
                 </tr>
               </thead>
               <tbody>
                 {data.projectStats
                   .filter((p) => p.session_count > 0)
-                  .map((p) => (
-                    <tr key={p.name} className="border-b border-zinc-800/30 hover:bg-zinc-800/20 transition-colors">
-                      <td className="py-3 text-zinc-200 font-medium">{p.original_path}</td>
-                      <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.session_count}</td>
-                      <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.total_messages.toLocaleString()}</td>
-                      <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.total_tool_calls.toLocaleString()}</td>
-                      <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNumber(p.total_input_tokens || 0)}</td>
-                      <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNumber(p.total_output_tokens || 0)}</td>
-                      <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNumber(p.total_cache_read_tokens || 0)}</td>
-                    </tr>
-                  ))}
+                  .map((p) => {
+                    const projectCost = estimateCost(
+                      "", // use default pricing for project-level aggregation
+                      p.total_input_tokens || 0,
+                      p.total_output_tokens || 0,
+                      p.total_cache_read_tokens || 0,
+                      p.total_cache_creation_tokens || 0
+                    );
+                    return (
+                      <tr key={p.name} className="border-b border-zinc-800/30 hover:bg-zinc-800/20 transition-colors">
+                        <td className="py-3 text-zinc-200 font-medium">{p.original_path}</td>
+                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.session_count}</td>
+                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.total_messages.toLocaleString()}</td>
+                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.total_tool_calls.toLocaleString()}</td>
+                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNumber(p.total_input_tokens || 0)}</td>
+                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNumber(p.total_output_tokens || 0)}</td>
+                        <td className="py-3 text-right text-green-400/80 font-mono text-xs">{formatCost(projectCost)}</td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
+            <p className="text-[10px] text-zinc-600 mt-3">* Cost estimates use 1-hour cache write pricing. Actual costs may vary.</p>
           </div>
         </>
       )}

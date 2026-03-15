@@ -87,5 +87,13 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
     CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id);
     CREATE INDEX IF NOT EXISTS idx_tool_calls_name ON tool_calls(tool_name);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
+      session_id UNINDEXED,
+      first_prompt,
+      summary,
+      content='',
+      tokenize='unicode61'
+    );
   `);
 }

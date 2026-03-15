@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ArrowLeft, Clock, MessageSquare, Wrench, Brain, Cpu, TerminalSquare, ArrowUp, Layers, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  CartesianGrid, ReferenceLine,
+} from "recharts";
+import { ArrowLeft, Clock, MessageSquare, Wrench, Brain, Cpu, TerminalSquare, ArrowUp, Layers, ChevronLeft, ChevronRight, DollarSign, GitCommit, GitBranch, ChevronDown, Plus, Minus } from "lucide-react";
+import { estimateCost, getContextWindow } from "@/lib/cost";
 
 interface ContentBlock {
   type: string;
@@ -29,8 +34,11 @@ interface ConversationMessage {
     input_tokens?: number;
     output_tokens?: number;
     cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
   };
   role?: string;
+  subtype?: string;
+  compactMetadata?: { preTokens?: number; postTokens?: number };
 }
 
 interface SessionDetail {
@@ -47,10 +55,21 @@ interface SessionDetail {
     total_input_tokens: number;
     total_output_tokens: number;
     total_cache_read_tokens: number;
+    total_cache_creation_tokens: number;
     git_branch: string;
     compression_count: number;
   };
   conversation: ConversationMessage[];
+}
+
+interface GitCommitInfo {
+  hash: string;
+  message: string;
+  author: string;
+  date: string;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
 }
 
 function isToolResultOnly(content: string | ContentBlock[] | undefined): boolean {
@@ -72,6 +91,11 @@ function formatTokens(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+function formatCost(n: number) {
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  return `$${n.toFixed(3)}`;
 }
 
 function MarkdownContent({ text }: { text: string }) {
@@ -181,6 +205,179 @@ function renderContent(content: string | ContentBlock[] | undefined, isUser: boo
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ContextTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  return (
+    <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 shadow-xl">
+      <p className="text-xs text-zinc-400 mb-1">Turn {label}</p>
+      <p className="text-xs text-indigo-400">{formatTokens(d?.context || 0)} tokens</p>
+      {d?.isCompression && (
+        <p className="text-xs text-amber-400">Compression event</p>
+      )}
+    </div>
+  );
+}
+
+function ContextPressureChart({ conversation, model }: { conversation: ConversationMessage[]; model: string }) {
+  const chartData = useMemo(() => {
+    const data: { turn: number; context: number; isCompression: boolean; preTokens?: number }[] = [];
+    let turnIndex = 0;
+
+    for (const msg of conversation) {
+      if (msg.type === "system" && msg.subtype === "compact_boundary" && msg.compactMetadata) {
+        data.push({
+          turn: turnIndex,
+          context: msg.compactMetadata.preTokens || 0,
+          isCompression: true,
+          preTokens: msg.compactMetadata.preTokens,
+        });
+        turnIndex++;
+      } else if (msg.type === "assistant" && msg.usage) {
+        const context =
+          (msg.usage.input_tokens || 0) +
+          (msg.usage.cache_read_input_tokens || 0) +
+          (msg.usage.cache_creation_input_tokens || 0);
+        if (context > 0) {
+          data.push({ turn: turnIndex, context, isCompression: false });
+          turnIndex++;
+        }
+      }
+    }
+    return data;
+  }, [conversation]);
+
+  if (chartData.length < 2) return null;
+
+  const contextLimit = getContextWindow(model);
+  const maxContext = Math.max(...chartData.map((d) => d.context), contextLimit * 0.5);
+  const compressionTurns = chartData.filter((d) => d.isCompression).map((d) => d.turn);
+
+  return (
+    <div className="bg-zinc-900/50 border border-zinc-800/40 rounded-2xl p-6 mb-8">
+      <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Context Window Pressure</h2>
+      <p className="text-[10px] text-zinc-600 mb-5">
+        Estimated context size per turn vs {formatTokens(contextLimit)} token limit
+      </p>
+      <ResponsiveContainer width="100%" height={200}>
+        <AreaChart data={chartData}>
+          <defs>
+            <linearGradient id="contextGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ef4444" stopOpacity={0.4} />
+              <stop offset="50%" stopColor="#eab308" stopOpacity={0.2} />
+              <stop offset="100%" stopColor="#22c55e" stopOpacity={0.05} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+          <XAxis dataKey="turn" tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} label={{ value: "Turn", position: "insideBottom", offset: -5, fontSize: 10, fill: "#52525b" }} />
+          <YAxis
+            tick={{ fontSize: 10, fill: "#52525b" }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={(v: number) => formatTokens(v)}
+            domain={[0, maxContext * 1.1]}
+          />
+          <Tooltip content={<ContextTooltip />} />
+          <ReferenceLine
+            y={contextLimit}
+            stroke="#ef4444"
+            strokeDasharray="6 3"
+            strokeWidth={1.5}
+            label={{ value: `${formatTokens(contextLimit)} limit`, position: "right", fontSize: 10, fill: "#ef4444" }}
+          />
+          {compressionTurns.map((turn) => (
+            <ReferenceLine
+              key={`comp-${turn}`}
+              x={turn}
+              stroke="#f59e0b"
+              strokeDasharray="4 2"
+              strokeWidth={1}
+            />
+          ))}
+          <Area
+            type="monotone"
+            dataKey="context"
+            stroke="#6366f1"
+            strokeWidth={2}
+            fill="url(#contextGradient)"
+            name="Context"
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+      {compressionTurns.length > 0 && (
+        <p className="text-[10px] text-amber-500/60 mt-2">
+          Yellow dashed lines indicate context compression events ({compressionTurns.length} total)
+        </p>
+      )}
+    </div>
+  );
+}
+
+function GitActivitySection({ sessionId }: { sessionId: string }) {
+  const [commits, setCommits] = useState<GitCommitInfo[] | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/sessions/${sessionId}/git`)
+      .then((r) => r.json())
+      .then((d) => setCommits(d.commits || []))
+      .catch(() => setCommits([]));
+  }, [sessionId]);
+
+  if (!commits || commits.length === 0) return null;
+
+  const totalInsertions = commits.reduce((s, c) => s + c.insertions, 0);
+  const totalDeletions = commits.reduce((s, c) => s + c.deletions, 0);
+  const totalFiles = new Set(commits.flatMap(() => [])).size || commits.reduce((s, c) => s + c.filesChanged, 0);
+
+  return (
+    <div className="bg-zinc-900/50 border border-zinc-800/40 rounded-2xl mb-8 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/20 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <GitBranch size={16} className="text-emerald-400" />
+          <span className="text-sm font-medium text-zinc-200">Git Activity</span>
+          <span className="text-xs text-zinc-500">
+            {commits.length} commit{commits.length !== 1 ? "s" : ""}
+          </span>
+          <span className="flex items-center gap-1 text-xs text-green-400/70">
+            <Plus size={10} />{totalInsertions}
+          </span>
+          <span className="flex items-center gap-1 text-xs text-red-400/70">
+            <Minus size={10} />{totalDeletions}
+          </span>
+          <span className="text-xs text-zinc-600">{totalFiles} files</span>
+        </div>
+        <ChevronDown size={16} className={`text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="border-t border-zinc-800/40 p-4 space-y-2">
+          {commits.map((c) => (
+            <div key={c.hash} className="flex items-start gap-3 py-2">
+              <GitCommit size={14} className="text-zinc-600 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-zinc-300 truncate">{c.message}</p>
+                <div className="flex items-center gap-3 mt-1 text-[11px] text-zinc-600">
+                  <span className="font-mono">{c.hash.slice(0, 7)}</span>
+                  <span>{c.author}</span>
+                  <span>{new Date(c.date).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                  <span className="text-green-400/60">+{c.insertions}</span>
+                  <span className="text-red-400/60">-{c.deletions}</span>
+                  <span>{c.filesChanged} file{c.filesChanged !== 1 ? "s" : ""}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SessionDetailPage() {
   const params = useParams();
   const [data, setData] = useState<SessionDetail | null>(null);
@@ -241,12 +438,19 @@ export default function SessionDetailPage() {
     (m) => m.type === "user" && !isToolResultOnly(m.content)
   ).length;
 
+  const sessionCost = estimateCost(
+    session.model_used || "",
+    session.total_input_tokens || 0,
+    session.total_output_tokens || 0,
+    session.total_cache_read_tokens || 0,
+    session.total_cache_creation_tokens || 0
+  );
+
   // Filter conversation based on view mode
   const filteredConversation = hideTools
     ? conversation.filter((m) => {
         if (m.type === "system") return false;
         if (m.type === "user" && isToolResultOnly(m.content)) return false;
-        // For assistant messages, check if there's any text content (not just tool_use)
         if (m.type === "assistant" && Array.isArray(m.content)) {
           return m.content.some((b) => b.type === "text" && b.text?.trim());
         }
@@ -293,6 +497,10 @@ export default function SessionDetailPage() {
               {session.compression_count} compressions
             </span>
           )}
+          <span className="flex items-center gap-1.5 text-green-400/80">
+            <DollarSign size={12} />
+            {formatCost(sessionCost)} est.
+          </span>
         </div>
 
         {/* Token summary bar */}
@@ -306,11 +514,21 @@ export default function SessionDetailPage() {
             <span className="ml-2 font-mono text-zinc-400">{formatTokens(session.total_output_tokens || 0)}</span>
           </div>
           <div>
-            <span className="text-zinc-600">Cache</span>
+            <span className="text-zinc-600">Cache Read</span>
             <span className="ml-2 font-mono text-zinc-400">{formatTokens(session.total_cache_read_tokens || 0)}</span>
+          </div>
+          <div>
+            <span className="text-zinc-600">Cache Write</span>
+            <span className="ml-2 font-mono text-zinc-400">{formatTokens(session.total_cache_creation_tokens || 0)}</span>
           </div>
         </div>
       </div>
+
+      {/* Git Activity */}
+      <GitActivitySection sessionId={session.id} />
+
+      {/* Context Pressure Chart */}
+      <ContextPressureChart conversation={conversation} model={session.model_used || ""} />
 
       {/* View mode toggle + Pagination header */}
       {(() => {
@@ -372,6 +590,9 @@ export default function SessionDetailPage() {
                   <div className="absolute left-[17px] w-2 h-2 rounded-full bg-zinc-700 border-2 border-zinc-900" />
                   <span className="text-[11px] text-zinc-600 flex items-center gap-1">
                     <Layers size={10} /> Context compressed
+                    {msg.compactMetadata?.preTokens && (
+                      <span className="text-amber-500/50 ml-1">({formatTokens(msg.compactMetadata.preTokens)} tokens)</span>
+                    )}
                   </span>
                 </div>
               );

@@ -212,6 +212,7 @@ async function indexSession(
     // 1. Clear old data
     db.prepare("DELETE FROM tool_calls WHERE session_id = ?").run(sessionId);
     db.prepare("DELETE FROM messages WHERE session_id = ?").run(sessionId);
+    db.prepare("DELETE FROM sessions_fts WHERE session_id = ?").run(sessionId);
     db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
 
     // 2. Insert complete session row
@@ -230,7 +231,13 @@ async function indexSession(
       indexEntry?.isSidechain ? 1 : 0
     );
 
-    // 3. Insert messages and tool calls
+    // 3. Populate FTS index
+    db.prepare(`
+      INSERT INTO sessions_fts (session_id, first_prompt, summary)
+      VALUES (?, ?, ?)
+    `).run(sessionId, firstPrompt || "", indexEntry?.summary || "");
+
+    // 4. Insert messages and tool calls
     const insertMessage = db.prepare(`
       INSERT OR IGNORE INTO messages (uuid, session_id, parent_uuid, type, timestamp, model,
         input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, tool_names, has_thinking, seq)

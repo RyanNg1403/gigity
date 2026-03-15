@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Clock, MessageSquare, Wrench, GitBranch, ChevronRight } from "lucide-react";
+import { Search, Clock, MessageSquare, Wrench, GitBranch, ChevronRight, DollarSign } from "lucide-react";
+import { estimateCost } from "@/lib/cost";
 
 interface Session {
   id: string;
@@ -18,6 +19,9 @@ interface Session {
   model_used: string | null;
   tool_call_count: number;
   total_output_tokens: number;
+  total_input_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_creation_tokens: number;
 }
 
 interface Project {
@@ -184,6 +188,18 @@ export default function SessionsPage() {
                   </span>
                   {formatDuration(s.duration_ms) && (
                     <span>{formatDuration(s.duration_ms)}</span>
+                  )}
+                  {s.model_used && (
+                    <span className="flex items-center gap-1 text-green-400/70">
+                      <DollarSign size={11} />
+                      {estimateCost(
+                        s.model_used,
+                        s.total_input_tokens || 0,
+                        s.total_output_tokens || 0,
+                        s.total_cache_read_tokens || 0,
+                        s.total_cache_creation_tokens || 0
+                      ).toFixed(2)}
+                    </span>
                   )}
                 </div>
               </div>

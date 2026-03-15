@@ -18,12 +18,13 @@ import {
 
 interface Analytics {
   dailyStats: { date: string; message_count: number; session_count: number; tool_call_count: number; tokens_by_model: string }[];
-  modelUsage: { model_used: string; session_count: number; output_tokens: number; input_tokens: number; cache_read_tokens: number; cache_creation_tokens: number; tool_calls: number }[];
+  modelUsage: { model_used: string; session_count: number; output_tokens: number; input_tokens: number; cache_read_tokens: number; cache_creation_tokens: number; tool_calls: number; estimated_cost: number }[];
   topTools: { tool_name: string; count: number }[];
   hourlyActivity: { hour: number; count: number }[];
   branchActivity: { git_branch: string; session_count: number; total_messages: number }[];
   totals: Record<string, number>;
   projectStats: { name: string; id: string; session_count: number; total_messages: number; total_tool_calls: number }[];
+  dailyCosts: { date: string; cost: number }[];
 }
 
 const COLORS = ["#6366f1", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"];
@@ -31,8 +32,11 @@ const COLORS = ["#6366f1", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#ec4899"
 function shortModel(m: string) {
   if (m.includes("opus-4-6")) return "Opus 4.6";
   if (m.includes("opus-4-5")) return "Opus 4.5";
+  if (m.includes("opus-4-1")) return "Opus 4.1";
+  if (m.includes("opus-4-2")) return "Opus 4";
   if (m.includes("sonnet-4-6")) return "Sonnet 4.6";
   if (m.includes("sonnet-4-5")) return "Sonnet 4.5";
+  if (m.includes("sonnet-4-2")) return "Sonnet 4";
   if (m.includes("haiku")) return "Haiku";
   return m;
 }
@@ -48,6 +52,12 @@ function formatDate(d: string) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function formatCost(n: number) {
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}K`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  return `$${n.toFixed(2)}`;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
@@ -56,7 +66,7 @@ function CustomTooltip({ active, payload, label }: any) {
       <p className="text-xs text-zinc-400 mb-1">{label}</p>
       {payload.map((p: { name: string; value: number; color: string }, i: number) => (
         <p key={i} className="text-xs font-medium" style={{ color: p.color }}>
-          {p.name}: {p.value.toLocaleString()}
+          {p.name}: {typeof p.value === "number" && p.name === "Cost" ? `$${p.value.toFixed(2)}` : p.value.toLocaleString()}
         </p>
       ))}
     </div>
@@ -83,19 +93,40 @@ export default function AnalyticsPage() {
     );
   }
 
-  const dailyTokens = data.dailyStats.map((d) => {
+  // Build a unified date set from both sources for aligned x-axes
+  const allDatesSet = new Set<string>();
+  for (const d of data.dailyStats) allDatesSet.add(d.date);
+  for (const d of (data.dailyCosts || [])) allDatesSet.add(d.date);
+  const allDates = Array.from(allDatesSet).sort();
+
+  const costByDate = new Map((data.dailyCosts || []).map((d) => [d.date, d.cost]));
+  const tokensByDate = new Map(data.dailyStats.map((d) => {
     let totalTokens = 0;
     try {
       const parsed = JSON.parse(d.tokens_by_model || "{}");
       totalTokens = Object.values(parsed).reduce((a: number, b) => a + (b as number), 0);
     } catch { /* ignore */ }
-    return { date: formatDate(d.date), messages: d.message_count, tools: d.tool_call_count, tokens: totalTokens };
-  });
+    return [d.date, { messages: d.message_count, tools: d.tool_call_count, tokens: totalTokens }] as const;
+  }));
+
+  const dailyTokens = allDates.map((date) => ({
+    date: formatDate(date),
+    messages: tokensByDate.get(date)?.messages || 0,
+    tools: tokensByDate.get(date)?.tools || 0,
+    tokens: tokensByDate.get(date)?.tokens || 0,
+  }));
+
+  const dailyCostData = allDates.map((date) => ({
+    date: formatDate(date),
+    cost: costByDate.get(date) || 0,
+  }));
 
   const fullHours = Array.from({ length: 24 }, (_, h) => {
     const found = data.hourlyActivity.find((a) => a.hour === h);
     return { hour: `${h.toString().padStart(2, "0")}:00`, count: found?.count || 0 };
   });
+
+  const totalCost = data.totals.total_cost || 0;
 
   return (
     <div className="p-8 max-w-7xl mx-auto relative z-10">
@@ -120,6 +151,32 @@ export default function AnalyticsPage() {
           </AreaChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Daily cost trend */}
+      {dailyCostData.length > 0 && (
+        <div className="rounded-2xl p-6 mb-8 bg-gradient-to-b from-zinc-900/80 to-zinc-900/30">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Daily Cost Trend</h2>
+            <span className="text-xs text-green-400/80">Total: {formatCost(totalCost)}</span>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={dailyCostData}>
+              <defs>
+                <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#52525b" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#52525b" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} />
+              <Tooltip content={<CustomTooltip />} />
+              <Area type="monotone" dataKey="cost" stroke="#10b981" strokeWidth={2} fill="url(#costGradient)" name="Cost" />
+            </AreaChart>
+          </ResponsiveContainer>
+          <p className="text-[10px] text-zinc-600 mt-2">* Estimates use 1-hour cache write pricing. Actual costs may vary.</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-6 mb-8">
         {/* Peak hours */}
@@ -162,9 +219,9 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-6">
-        {/* Model token breakdown */}
+        {/* Model token breakdown with cost */}
         <div className="bg-zinc-900/50 border border-zinc-800/40 rounded-xl p-6">
-          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-5">Token Economics by Model</h2>
+          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-5">Cost by Model</h2>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-zinc-600 border-b border-zinc-800/60">
@@ -172,6 +229,7 @@ export default function AnalyticsPage() {
                 <th className="text-right pb-3 text-xs font-medium uppercase tracking-wider">Input</th>
                 <th className="text-right pb-3 text-xs font-medium uppercase tracking-wider">Output</th>
                 <th className="text-right pb-3 text-xs font-medium uppercase tracking-wider">Cache</th>
+                <th className="text-right pb-3 text-xs font-medium uppercase tracking-wider">Est. Cost</th>
               </tr>
             </thead>
             <tbody>
@@ -181,6 +239,7 @@ export default function AnalyticsPage() {
                   <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNum(m.input_tokens || 0)}</td>
                   <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNum(m.output_tokens || 0)}</td>
                   <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNum(m.cache_read_tokens || 0)}</td>
+                  <td className="py-3 text-right text-green-400/80 font-mono text-xs">{formatCost(m.estimated_cost || 0)}</td>
                 </tr>
               ))}
             </tbody>

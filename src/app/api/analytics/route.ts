@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { estimateCost } from "@/lib/cost";
 
 export async function GET() {
   const db = getDb();
@@ -21,7 +22,7 @@ export async function GET() {
       FROM sessions WHERE model_used IS NOT NULL
       GROUP BY model_used
     `)
-    .all();
+    .all() as { model_used: string; session_count: number; input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_creation_tokens: number; tool_calls: number }[];
 
   // Top tools
   const topTools = db
@@ -65,9 +66,9 @@ export async function GET() {
         SUM(compression_count) as total_compressions
       FROM sessions
     `)
-    .get();
+    .get() as Record<string, number>;
 
-  // Project leaderboard
+  // Project leaderboard (with cache_creation_tokens for cost calc)
   const projectStats = db
     .prepare(`
       SELECT p.name, p.id, p.original_path, COUNT(s.id) as session_count,
@@ -75,19 +76,65 @@ export async function GET() {
         SUM(s.tool_call_count) as total_tool_calls,
         SUM(s.total_input_tokens) as total_input_tokens,
         SUM(s.total_output_tokens) as total_output_tokens,
-        SUM(s.total_cache_read_tokens) as total_cache_read_tokens
+        SUM(s.total_cache_read_tokens) as total_cache_read_tokens,
+        SUM(s.total_cache_creation_tokens) as total_cache_creation_tokens
       FROM projects p LEFT JOIN sessions s ON p.id = s.project_id
       GROUP BY p.id ORDER BY session_count DESC
     `)
     .all();
 
+  // Compute model costs
+  const modelCosts = modelUsage.map((m) => ({
+    ...m,
+    estimated_cost: estimateCost(
+      m.model_used,
+      m.input_tokens || 0,
+      m.output_tokens || 0,
+      m.cache_read_tokens || 0,
+      m.cache_creation_tokens || 0
+    ),
+  }));
+
+  // Total cost
+  const totalCost = modelCosts.reduce((sum, m) => sum + m.estimated_cost, 0);
+
+  // Daily cost trend
+  const dailyCostRows = db
+    .prepare(`
+      SELECT DATE(created_at) as date, model_used,
+        SUM(total_input_tokens) as input_tok,
+        SUM(total_output_tokens) as output_tok,
+        SUM(total_cache_read_tokens) as cache_read_tok,
+        SUM(total_cache_creation_tokens) as cache_write_tok
+      FROM sessions WHERE created_at IS NOT NULL
+      GROUP BY date, model_used ORDER BY date
+    `)
+    .all() as { date: string; model_used: string; input_tok: number; output_tok: number; cache_read_tok: number; cache_write_tok: number }[];
+
+  // Aggregate daily costs
+  const dailyCostMap = new Map<string, number>();
+  for (const row of dailyCostRows) {
+    const cost = estimateCost(
+      row.model_used || "",
+      row.input_tok || 0,
+      row.output_tok || 0,
+      row.cache_read_tok || 0,
+      row.cache_write_tok || 0
+    );
+    dailyCostMap.set(row.date, (dailyCostMap.get(row.date) || 0) + cost);
+  }
+  const dailyCosts = Array.from(dailyCostMap.entries())
+    .map(([date, cost]) => ({ date, cost: Math.round(cost * 100) / 100 }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
   return NextResponse.json({
     dailyStats: dailyStats.reverse(),
-    modelUsage,
+    modelUsage: modelCosts,
     topTools,
     hourlyActivity,
     branchActivity,
-    totals,
+    totals: { ...totals, total_cost: Math.round(totalCost * 100) / 100 },
     projectStats,
+    dailyCosts,
   });
 }

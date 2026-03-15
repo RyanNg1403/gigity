@@ -19,8 +19,17 @@ export async function GET(req: NextRequest) {
   }
 
   if (search) {
-    conditions.push("(s.first_prompt LIKE ? OR s.summary LIKE ?)");
-    params.push(`%${search}%`, `%${search}%`);
+    // Use FTS5 for text search when available, fall back to LIKE
+    const ftsAvailable = hasFtsData(db);
+    if (ftsAvailable) {
+      // FTS5 match: escape special chars and append * for prefix matching
+      const ftsQuery = search.replace(/['"]/g, "").split(/\s+/).filter(Boolean).map(t => `"${t}"*`).join(" ");
+      conditions.push("s.id IN (SELECT session_id FROM sessions_fts WHERE sessions_fts MATCH ?)");
+      params.push(ftsQuery);
+    } else {
+      conditions.push("(s.first_prompt LIKE ? OR s.summary LIKE ?)");
+      params.push(`%${search}%`, `%${search}%`);
+    }
   }
 
   if (conditions.length > 0) {
@@ -39,4 +48,14 @@ export async function GET(req: NextRequest) {
   const { total } = db.prepare(countQuery).get(...countParams) as { total: number };
 
   return NextResponse.json({ sessions, total });
+}
+
+/** Check if the FTS table has been populated (i.e., a sync has run since FTS was added) */
+function hasFtsData(db: ReturnType<typeof getDb>): boolean {
+  try {
+    const row = db.prepare("SELECT COUNT(*) as c FROM sessions_fts").get() as { c: number };
+    return row.c > 0;
+  } catch {
+    return false;
+  }
 }

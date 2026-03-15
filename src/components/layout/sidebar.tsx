@@ -3,12 +3,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { useState, useCallback } from "react";
 import {
   LayoutDashboard,
   MessageSquare,
   BarChart3,
   Brain,
   Settings,
+  RefreshCw,
 } from "lucide-react";
 
 const navItems = [
@@ -21,6 +23,25 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+
+  const doSync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/sync", { method: "POST" });
+      if (res.ok) {
+        const result = await res.json();
+        setLastSync(`${result.sessionsIndexed} sessions`);
+        // Dispatch a custom event so pages can react to sync completion
+        window.dispatchEvent(new CustomEvent("gigity:sync-complete", { detail: result }));
+        // Clear the status after a few seconds
+        setTimeout(() => setLastSync(null), 4000);
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
 
   return (
     <aside className="w-60 bg-zinc-900/80 backdrop-blur-sm border-r border-zinc-800/60 flex flex-col h-screen sticky top-0">
@@ -66,6 +87,21 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Sync button */}
+      <div className="px-3 pb-2">
+        <button
+          onClick={doSync}
+          disabled={syncing}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-lg text-xs font-medium transition-all duration-200 shadow-lg shadow-indigo-600/20"
+        >
+          <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
+          {syncing ? "Syncing..." : "Sync Data"}
+        </button>
+        {lastSync && (
+          <p className="text-[10px] text-emerald-400/70 text-center mt-1.5">Synced {lastSync}</p>
+        )}
+      </div>
 
       {/* Footer */}
       <div className="px-5 py-4 border-t border-zinc-800/60">

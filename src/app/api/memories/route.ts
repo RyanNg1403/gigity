@@ -114,7 +114,15 @@ export async function PUT(req: NextRequest) {
   }
 
   try {
-    fs.writeFileSync(filePath, content, "utf-8");
+    // Ensure memory directory exists
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    // Atomic write via temp file + rename
+    const tmpPath = filePath + ".tmp";
+    fs.writeFileSync(tmpPath, content, "utf-8");
+    fs.renameSync(tmpPath, filePath);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
