@@ -54,6 +54,7 @@ Form-based editor for `~/.claude/settings.json` with dropdowns, toggles, and tex
 | **Settings Editor** | Form UI for all documented Claude Code settings with raw JSON fallback |
 | **Global Sync** | Sync button in the sidebar, accessible from any page with auto-refresh |
 | **Incremental Sync** | SQLite indexing with mtime-based incremental updates (~1s for 100 sessions) |
+| **ggt CLI** | Query session history from the terminal — search messages, list sessions, analyze costs, run raw SQL |
 
 ## Quick Start
 
@@ -68,6 +69,25 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) and click **Sync Data** in the sidebar to index your `~/.claude/` sessions.
 
+### CLI (`ggt`)
+
+```bash
+pnpm cli:build && pnpm cli:link
+```
+
+Query your session data from the terminal:
+
+```bash
+ggt projects list                                    # List all projects
+ggt sessions list --project=my-app --limit=10        # List sessions with filters
+ggt sessions show f81f                               # Session details (prefix match)
+ggt messages list f81f --type=user --full             # Read messages from a session
+ggt messages search "authentication" --project=my-app # Search across sessions
+ggt sql "SELECT COUNT(*) FROM sessions"               # Raw SQL escape hatch
+```
+
+All commands support `--json` for piping. See `ggt --help` for full usage. A Claude Code skill is included at `skills/ggt/` for AI-assisted session querying.
+
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router) + TypeScript
@@ -75,6 +95,7 @@ Open [http://localhost:3000](http://localhost:3000) and click **Sync Data** in t
 - **UI:** Tailwind CSS v4 + Lucide icons
 - **Charts:** Recharts
 - **Markdown:** react-markdown + remark-gfm
+- **CLI:** oclif (ggt command)
 
 ## Data Sources
 

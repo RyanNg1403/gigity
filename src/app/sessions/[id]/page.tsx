@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
@@ -9,7 +9,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, ReferenceLine,
 } from "recharts";
-import { ArrowLeft, Clock, MessageSquare, Wrench, Brain, Cpu, TerminalSquare, ArrowUp, Layers, ChevronLeft, ChevronRight, DollarSign, GitCommit, GitBranch, ChevronDown, Plus, Minus } from "lucide-react";
+import { ArrowLeft, Clock, MessageSquare, Wrench, Brain, Cpu, TerminalSquare, ArrowUp, Layers, ChevronLeft, ChevronRight, DollarSign, GitCommit, GitBranch, ChevronDown, Plus, Minus, Search, X } from "lucide-react";
 import { estimateCost, getContextWindow } from "@/lib/cost";
 
 interface ContentBlock {
@@ -144,19 +144,17 @@ function MarkdownContent({ text }: { text: string }) {
   );
 }
 
-function renderContent(content: string | ContentBlock[] | undefined, isUser: boolean, toolUseMap?: Map<string, string>, hideTools?: boolean) {
+function renderContent(content: string | ContentBlock[] | undefined, _isUser: boolean, toolUseMap?: Map<string, string>, hideTools?: boolean) {
   if (!content) return null;
   if (typeof content === "string") {
-    return isUser ? <p className="whitespace-pre-wrap">{content}</p> : <MarkdownContent text={content} />;
+    return <MarkdownContent text={content} />;
   }
 
   const blocks = hideTools ? content.filter((b) => b.type === "text" || b.type === "thinking") : content;
 
   return blocks.map((block, i) => {
     if (block.type === "text" && block.text) {
-      return isUser ? (
-        <div key={i} className="whitespace-pre-wrap">{block.text}</div>
-      ) : (
+      return (
         <MarkdownContent key={i} text={block.text} />
       );
     }
@@ -378,6 +376,35 @@ function GitActivitySection({ sessionId }: { sessionId: string }) {
   );
 }
 
+/** Extract plain text from a message for search matching */
+function getMessageSearchText(msg: ConversationMessage, textOnly: boolean): string {
+  if (msg.type === "system") return "";
+  const content = msg.content;
+  if (!content) return "";
+  if (typeof content === "string") return content;
+
+  const parts: string[] = [];
+  for (const block of content) {
+    if (block.type === "text" && block.text) {
+      parts.push(block.text);
+    }
+    if (block.type === "thinking" && block.thinking) {
+      parts.push(block.thinking);
+    }
+    if (!textOnly) {
+      if (block.type === "tool_use" && block.name) {
+        parts.push(block.name);
+        if (block.input) parts.push(JSON.stringify(block.input));
+      }
+      if (block.type === "tool_result") {
+        const text = getToolResultText(block.content);
+        if (text) parts.push(text);
+      }
+    }
+  }
+  return parts.join(" ");
+}
+
 export default function SessionDetailPage() {
   const params = useParams();
   const [data, setData] = useState<SessionDetail | null>(null);
@@ -385,15 +412,24 @@ export default function SessionDetailPage() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [page, setPage] = useState(0);
   const [hideTools, setHideTools] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchActive, setSearchActive] = useState(false);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const PAGE_SIZE = 50;
 
   useEffect(() => {
-    fetch(`/api/sessions/${params.id}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setData(d);
-        setLoading(false);
-      });
+    let cancelled = false;
+    const load = () => {
+      fetch(`/api/sessions/${params.id}`)
+        .then((r) => r.json())
+        .then((d) => { if (!cancelled) { setData(d); setLoading(false); } });
+    };
+    load();
+
+    const onSync = () => load();
+    window.addEventListener("gigity:sync-complete", onSync);
+    return () => { cancelled = true; window.removeEventListener("gigity:sync-complete", onSync); };
   }, [params.id]);
 
   useEffect(() => {
@@ -402,6 +438,97 @@ export default function SessionDetailPage() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Derived data — safe to compute even when data is null (returns empty/zero)
+  const conversation = useMemo(() => data?.conversation || [], [data]);
+  const session = data?.session;
+
+  const filteredConversation = useMemo(() => {
+    if (!hideTools) return conversation;
+    return conversation.filter((m) => {
+      if (m.type === "system") return false;
+      if (m.type === "user" && isToolResultOnly(m.content)) return false;
+      if (m.type === "assistant" && Array.isArray(m.content)) {
+        return m.content.some((b) => b.type === "text" && b.text?.trim());
+      }
+      return true;
+    });
+  }, [conversation, hideTools]);
+
+  // Search: find matching message indices within filteredConversation
+  const searchMatches = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const query = searchQuery.toLowerCase();
+    const matches: number[] = [];
+    for (let i = 0; i < filteredConversation.length; i++) {
+      const text = getMessageSearchText(filteredConversation[i], hideTools);
+      if (text.toLowerCase().includes(query)) {
+        matches.push(i);
+      }
+    }
+    return matches;
+  }, [filteredConversation, searchQuery, hideTools]);
+
+  // Navigate to a specific match
+  const goToMatch = useCallback((matchIdx: number) => {
+    if (matchIdx < 0 || matchIdx >= searchMatches.length) return;
+    setCurrentMatchIndex(matchIdx);
+    const msgIndex = searchMatches[matchIdx];
+    const targetPage = Math.floor(msgIndex / PAGE_SIZE);
+    setPage(targetPage);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-msg-index="${msgIndex}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+  }, [searchMatches, PAGE_SIZE]);
+
+  // Reset match index when query changes
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    setCurrentMatchIndex(0);
+    if (value.trim()) {
+      setSearchActive(true);
+    }
+  }, []);
+
+  // Keyboard shortcut: Ctrl/Cmd+F to open search, Escape to close, Enter for next match
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        setSearchActive(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+      }
+      if (e.key === "Escape" && searchActive) {
+        setSearchActive(false);
+        setSearchQuery("");
+      }
+      if (e.key === "Enter" && searchActive && searchMatches.length > 0) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          goToMatch((currentMatchIndex - 1 + searchMatches.length) % searchMatches.length);
+        } else {
+          goToMatch((currentMatchIndex + 1) % searchMatches.length);
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [searchActive, searchMatches, currentMatchIndex, goToMatch]);
+
+  // The set of message indices on the current page that are matches (for highlighting)
+  const currentPageMatchSet = useMemo(() => {
+    const set = new Set<number>();
+    const start = page * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    for (const idx of searchMatches) {
+      if (idx >= start && idx < end) set.add(idx);
+    }
+    return set;
+  }, [searchMatches, page, PAGE_SIZE]);
+
+  const focusedMsgIndex = searchMatches.length > 0 ? searchMatches[currentMatchIndex] : -1;
+
+  // Early returns after all hooks
   if (loading) {
     return (
       <div className="p-8 max-w-4xl mx-auto relative z-10">
@@ -416,11 +543,9 @@ export default function SessionDetailPage() {
     );
   }
 
-  if (!data?.session) {
+  if (!session) {
     return <div className="p-8 text-zinc-500 relative z-10">Session not found</div>;
   }
-
-  const { session, conversation } = data;
 
   // Build tool_use id → tool name map for linking results to calls
   const toolUseMap = new Map<string, string>();
@@ -445,18 +570,6 @@ export default function SessionDetailPage() {
     session.total_cache_read_tokens || 0,
     session.total_cache_creation_tokens || 0
   );
-
-  // Filter conversation based on view mode
-  const filteredConversation = hideTools
-    ? conversation.filter((m) => {
-        if (m.type === "system") return false;
-        if (m.type === "user" && isToolResultOnly(m.content)) return false;
-        if (m.type === "assistant" && Array.isArray(m.content)) {
-          return m.content.some((b) => b.type === "text" && b.text?.trim());
-        }
-        return true;
-      })
-    : conversation;
 
   return (
     <div className="p-8 max-w-4xl mx-auto relative z-10">
@@ -530,6 +643,51 @@ export default function SessionDetailPage() {
       {/* Context Pressure Chart */}
       <ContextPressureChart conversation={conversation} model={session.model_used || ""} />
 
+      {/* Search bar */}
+      {searchActive && (
+        <div className="flex items-center gap-2 mb-3 bg-zinc-900/70 border border-zinc-700/50 rounded-lg px-3 py-2">
+          <Search size={14} className="text-zinc-500 shrink-0" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder={hideTools ? "Search text messages..." : "Search all messages..."}
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="flex-1 bg-transparent text-sm placeholder:text-zinc-600 focus:outline-none"
+            autoFocus
+          />
+          {searchQuery && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] text-zinc-500">
+                {searchMatches.length > 0
+                  ? `${currentMatchIndex + 1} of ${searchMatches.length}`
+                  : "No matches"}
+              </span>
+              <button
+                onClick={() => goToMatch((currentMatchIndex - 1 + searchMatches.length) % searchMatches.length)}
+                disabled={searchMatches.length === 0}
+                className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+              >
+                <ChevronLeft size={14} className="text-zinc-400" />
+              </button>
+              <button
+                onClick={() => goToMatch((currentMatchIndex + 1) % searchMatches.length)}
+                disabled={searchMatches.length === 0}
+                className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+              >
+                <ChevronRight size={14} className="text-zinc-400" />
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => { setSearchActive(false); setSearchQuery(""); }}
+            className="p-1 rounded hover:bg-zinc-800 transition-colors shrink-0"
+          >
+            <X size={14} className="text-zinc-500" />
+          </button>
+        </div>
+      )}
+
       {/* View mode toggle + Pagination header */}
       {(() => {
         const totalPages = Math.ceil(filteredConversation.length / PAGE_SIZE);
@@ -542,7 +700,7 @@ export default function SessionDetailPage() {
                 Messages {start + 1}–{end} of {filteredConversation.length}
               </p>
               <button
-                onClick={() => { setHideTools(!hideTools); setPage(0); }}
+                onClick={() => { setHideTools(!hideTools); setPage(0); setSearchQuery(""); setCurrentMatchIndex(0); }}
                 className={`text-[11px] px-2.5 py-1 rounded-md border transition-colors ${
                   hideTools
                     ? "bg-indigo-600/15 border-indigo-500/30 text-indigo-400"
@@ -551,6 +709,14 @@ export default function SessionDetailPage() {
               >
                 {hideTools ? "Text only" : "All messages"}
               </button>
+              {!searchActive && (
+                <button
+                  onClick={() => { setSearchActive(true); setTimeout(() => searchInputRef.current?.focus(), 50); }}
+                  className="text-[11px] px-2.5 py-1 rounded-md border border-zinc-700/50 bg-zinc-800/50 text-zinc-500 hover:text-zinc-400 transition-colors flex items-center gap-1"
+                >
+                  <Search size={11} /> Search
+                </button>
+              )}
             </div>
             {totalPages > 1 && (
               <div className="flex items-center gap-1.5">
@@ -584,6 +750,10 @@ export default function SessionDetailPage() {
 
         <div className="space-y-3">
           {filteredConversation.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((msg, i) => {
+            const globalIndex = page * PAGE_SIZE + i;
+            const isMatch = currentPageMatchSet.has(globalIndex);
+            const isFocusedMatch = globalIndex === focusedMsgIndex;
+
             if (msg.type === "system") {
               return (
                 <div key={msg.uuid || i} className="relative flex items-center gap-3 py-2 pl-10">
@@ -608,7 +778,7 @@ export default function SessionDetailPage() {
               if (!hasContent) return null;
 
               return (
-                <div key={msg.uuid || i} className="relative pl-10 space-y-1">
+                <div key={msg.uuid || i} className="relative pl-10 space-y-1" data-msg-index={globalIndex}>
                   <div className="absolute left-[17px] w-2 h-2 rounded-full bg-zinc-700 border-2 border-zinc-900" />
                   {blocks.map((block, j) => {
                     const resultText = getToolResultText(block.content);
@@ -632,16 +802,16 @@ export default function SessionDetailPage() {
             const dotColor = isUser ? "bg-indigo-500" : "bg-emerald-500";
 
             return (
-              <div key={msg.uuid || i} className="relative pl-10">
+              <div key={msg.uuid || i} className="relative pl-10" data-msg-index={globalIndex}>
                 {/* Timeline dot */}
                 <div className={`absolute left-[15px] top-4 w-3 h-3 rounded-full ${dotColor} border-2 border-zinc-950 shadow-sm`} />
 
                 <div
-                  className={`rounded-xl p-4 ${
+                  className={`rounded-xl p-4 transition-all duration-300 ${
                     isUser
                       ? "bg-indigo-950/20 border border-indigo-900/30"
                       : "bg-zinc-900/40 border border-zinc-800/40"
-                  }`}
+                  } ${isFocusedMatch ? "ring-2 ring-amber-500/70 border-amber-500/40" : isMatch ? "ring-1 ring-indigo-500/30" : ""}`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className={`text-xs font-semibold ${isUser ? "text-indigo-400" : "text-emerald-400"}`}>

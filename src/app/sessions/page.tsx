@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Clock, MessageSquare, Wrench, GitBranch, ChevronRight, DollarSign } from "lucide-react";
+import { Search, Clock, MessageSquare, Wrench, GitBranch, ChevronRight, DollarSign, Trash2 } from "lucide-react";
 import { estimateCost } from "@/lib/cost";
 
 interface Session {
@@ -68,6 +68,39 @@ function formatDate(dateStr: string) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function DeleteConfirmDialog({ session, onConfirm, onCancel }: {
+  session: Session;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold text-zinc-200 mb-2">Delete session?</h3>
+        <p className="text-sm text-zinc-400 mb-1">This will permanently delete the session and its JSONL file:</p>
+        <p className="text-sm text-zinc-300 font-medium truncate mb-4">
+          {session.first_prompt || session.summary || session.id}
+        </p>
+        <p className="text-xs text-red-400/80 mb-5">This action cannot be undone.</p>
+        <div className="flex items-center justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 rounded-lg hover:bg-zinc-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -75,12 +108,21 @@ export default function SessionsPage() {
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [offset, setOffset] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
   const limit = 30;
 
   useEffect(() => {
     fetch("/api/projects")
       .then((r) => r.json())
       .then(setProjects);
+  }, []);
+
+  const [syncCounter, setSyncCounter] = useState(0);
+
+  useEffect(() => {
+    const onSync = () => setSyncCounter((c) => c + 1);
+    window.addEventListener("gigity:sync-complete", onSync);
+    return () => window.removeEventListener("gigity:sync-complete", onSync);
   }, []);
 
   useEffect(() => {
@@ -99,7 +141,16 @@ export default function SessionsPage() {
         setTotal(data.total);
       });
     return () => { cancelled = true; };
-  }, [search, projectFilter, offset, limit]);
+  }, [search, projectFilter, offset, limit, syncCounter]);
+
+  const handleDelete = async (session: Session) => {
+    const res = await fetch(`/api/sessions/${session.id}/delete`, { method: "DELETE" });
+    if (res.ok) {
+      setSessions((prev) => prev.filter((s) => s.id !== session.id));
+      setTotal((prev) => prev - 1);
+    }
+    setDeleteTarget(null);
+  };
 
   return (
     <div className="p-8 max-w-7xl mx-auto relative z-10">
@@ -203,7 +254,20 @@ export default function SessionsPage() {
                   )}
                 </div>
               </div>
-              <ChevronRight size={16} className="text-zinc-700 group-hover:text-zinc-500 mt-1 transition-colors shrink-0" />
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDeleteTarget(s);
+                  }}
+                  className="p-1.5 rounded-md text-zinc-700 hover:text-red-400 hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-all"
+                  title="Delete session"
+                >
+                  <Trash2 size={14} />
+                </button>
+                <ChevronRight size={16} className="text-zinc-700 group-hover:text-zinc-500 mt-1 transition-colors" />
+              </div>
             </div>
           </Link>
         ))}
@@ -234,6 +298,14 @@ export default function SessionsPage() {
           <MessageSquare size={28} className="text-zinc-700 mx-auto mb-3" />
           <p className="text-zinc-500 text-sm">No sessions found. Sync data from the Dashboard first.</p>
         </div>
+      )}
+
+      {deleteTarget && (
+        <DeleteConfirmDialog
+          session={deleteTarget}
+          onConfirm={() => handleDelete(deleteTarget)}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   );

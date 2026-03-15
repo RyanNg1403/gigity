@@ -77,7 +77,10 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<Analytics | null>(null);
 
   useEffect(() => {
-    fetch("/api/analytics").then((r) => r.json()).then(setData);
+    const load = () => fetch("/api/analytics").then((r) => r.json()).then(setData);
+    load();
+    window.addEventListener("gigity:sync-complete", load);
+    return () => window.removeEventListener("gigity:sync-complete", load);
   }, []);
 
   if (!data) {
