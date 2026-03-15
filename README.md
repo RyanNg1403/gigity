@@ -15,7 +15,7 @@ Gigity reads the raw data stored in `~/.claude/` — session transcripts, usage 
 ## Usage
 
 ### Dashboard
-Overview stats, daily activity chart, model usage breakdown, top tools, and project leaderboard with token usage.
+Overview stats, daily activity chart, model usage breakdown, top tools, project leaderboard with estimated costs, and a global sync button in the sidebar accessible from any page.
 
 ![Dashboard](public/screenshots/dashboard.png)
 
@@ -25,12 +25,12 @@ Search and filter sessions by project, with metadata badges for model, git branc
 ![Sessions](public/screenshots/sessions.png)
 
 ### Session Replay
-Full conversation replay with markdown rendering, collapsible thinking blocks, tool call details linked to their results, and a timeline view. Toggle between "All messages" and "Text only" modes. Paginated for large sessions.
+Full conversation replay with markdown rendering, collapsible thinking blocks, tool call details linked to their results, and a timeline view. Toggle between "All messages" and "Text only" modes. Paginated for large sessions. Includes estimated session cost, git activity during the session, and a context window pressure chart.
 
 ![Session Detail](public/screenshots/session-detail.png)
 
 ### Analytics
-Daily token usage trends, sessions by hour, tool distribution, model token economics, and git branch activity.
+Daily token usage trends, daily cost trend chart, sessions by hour, tool distribution, cost-by-model breakdown, and git branch activity.
 
 ![Analytics](public/screenshots/analytics.png)
 
@@ -43,13 +43,16 @@ Form-based editor for `~/.claude/settings.json` with dropdowns, toggles, and tex
 
 | Feature | Description |
 |---|---|
-| **Session Browser** | Search, filter by project, paginated session list with metadata |
+| **Session Browser** | Search (FTS5-backed), filter by project, paginated session list with per-session cost |
 | **Session Replay** | Full conversation with markdown, thinking blocks, tool calls, tool results linked by ID |
 | **Text-Only Mode** | Strip tool calls to see just the human/Claude conversation |
-| **Usage Analytics** | Daily tokens, peak hours, tool distribution, model comparison, git branch activity |
-| **Memory Manager** | Browse, edit, and delete project memories and MEMORY.md indexes |
+| **Cost Tracker** | Estimated costs per session, project, model, and day using official Anthropic pricing |
+| **Git-Diff Mapping** | Collapsible git activity section in session detail showing commits made during the session |
+| **Context Pressure** | Area chart visualizing context window usage per turn with compression event markers |
+| **Usage Analytics** | Daily tokens, daily cost trend, peak hours, tool distribution, cost-by-model breakdown |
+| **Memory Manager** | Browse, edit, and delete project memories with atomic file writes |
 | **Settings Editor** | Form UI for all documented Claude Code settings with raw JSON fallback |
-| **Token Economics** | Per-project and per-model input/output/cache token breakdown |
+| **Global Sync** | Sync button in the sidebar, accessible from any page with auto-refresh |
 | **Incremental Sync** | SQLite indexing with mtime-based incremental updates (~1s for 100 sessions) |
 
 ## Quick Start
@@ -63,7 +66,7 @@ pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and click **Sync Data** to index your `~/.claude/` sessions.
+Open [http://localhost:3000](http://localhost:3000) and click **Sync Data** in the sidebar to index your `~/.claude/` sessions.
 
 ## Tech Stack
 
@@ -87,11 +90,12 @@ All data is read from `~/.claude/`:
 
 ## Architecture
 
-- **`POST /api/sync`** — Scans `~/.claude/projects/`, parses JSONL files, populates SQLite. Atomic per-session transactions. Incremental by file mtime.
-- **`GET /api/sessions/[id]`** — Reads JSONL on demand for full conversation replay.
-- **`GET /api/analytics`** — Aggregated queries from SQLite.
-- **`GET/PUT/DELETE /api/memories`** — Server-side path resolution with traversal protection.
-- **`GET/PUT /api/settings`** — Read/write with backup before overwrite.
+- **`POST /api/sync`** — Scans `~/.claude/projects/`, parses JSONL files, populates SQLite + FTS5 index. Atomic per-session transactions. Incremental by file mtime.
+- **`GET /api/sessions/[id]`** — Reads JSONL on demand for full conversation replay with compression metadata.
+- **`GET /api/sessions/[id]/git`** — Returns git commits made during the session by matching timestamps against the project repo.
+- **`GET /api/analytics`** — Aggregated queries from SQLite with cost estimation per model and day.
+- **`GET/PUT/DELETE /api/memories`** — Server-side path resolution with traversal protection and atomic writes.
+- **`GET/PUT /api/settings`** — Read/write with atomic temp-file swap and backup before overwrite.
 
 ## Privacy
 
