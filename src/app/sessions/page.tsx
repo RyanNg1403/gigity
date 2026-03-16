@@ -22,6 +22,7 @@ interface Session {
   total_input_tokens: number;
   total_cache_read_tokens: number;
   total_cache_creation_tokens: number;
+  overall_score: number | null;
 }
 
 interface Project {
@@ -153,7 +154,7 @@ export default function SessionsPage() {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto relative z-10">
+    <div className="px-6 py-8 max-w-[1600px] mx-auto relative z-10">
       <h1 className="text-3xl font-semibold tracking-tight mb-8">Sessions</h1>
 
       {/* Filters */}
@@ -221,6 +222,11 @@ export default function SessionsPage() {
                       <GitBranch size={10} />{s.git_branch}
                     </span>
                   )}
+                  {s.overall_score != null && (
+                    <span className={`badge ${s.overall_score >= 80 ? "badge-emerald" : s.overall_score >= 50 ? "badge-amber" : "badge-rose"}`}>
+                      {Math.round(s.overall_score)}
+                    </span>
+                  )}
                 </div>
 
                 {/* Meta row */}
@@ -261,7 +267,7 @@ export default function SessionsPage() {
                     e.stopPropagation();
                     setDeleteTarget(s);
                   }}
-                  className="p-1.5 rounded-md text-zinc-700 hover:text-red-400 hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-all"
+                  className="p-1.5 rounded-md text-zinc-700 hover:text-red-400 hover:bg-red-950/30 transition-all"
                   title="Delete session"
                 >
                   <Trash2 size={14} />
@@ -296,7 +302,19 @@ export default function SessionsPage() {
       {sessions.length === 0 && (
         <div className="text-center py-20">
           <MessageSquare size={28} className="text-zinc-700 mx-auto mb-3" />
-          <p className="text-zinc-500 text-sm">No sessions found. Sync data from the Dashboard first.</p>
+          {search || projectFilter ? (
+            <>
+              <p className="text-zinc-500 text-sm">No sessions match your {search ? "search" : "filter"}.</p>
+              <button
+                onClick={() => { setSearch(""); setProjectFilter(""); setOffset(0); }}
+                className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+              >
+                Clear {search ? "search" : "filters"}
+              </button>
+            </>
+          ) : (
+            <p className="text-zinc-500 text-sm">No sessions found. Sync data from the Dashboard first.</p>
+          )}
         </div>
       )}
 

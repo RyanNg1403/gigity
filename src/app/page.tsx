@@ -136,7 +136,7 @@ export default function Dashboard() {
   } : null;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto relative z-10">
+    <div className="px-6 py-8 max-w-[1600px] mx-auto relative z-10">
       {/* Header */}
       <div className="mb-10">
         <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
@@ -289,7 +289,9 @@ export default function Dashboard() {
                     );
                     return (
                       <tr key={p.name} className="border-b border-zinc-800/30 hover:bg-zinc-800/20 transition-colors">
-                        <td className="py-3 text-zinc-200 font-medium">{p.original_path}</td>
+                        <td className="py-3 text-zinc-200 font-medium" title={p.original_path}>
+                          {p.original_path.split("/").filter(Boolean).slice(-2).join("/")}
+                        </td>
                         <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.session_count}</td>
                         <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.total_messages.toLocaleString()}</td>
                         <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.total_tool_calls.toLocaleString()}</td>

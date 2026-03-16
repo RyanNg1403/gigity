@@ -9,8 +9,12 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, ReferenceLine,
 } from "recharts";
-import { ArrowLeft, Clock, MessageSquare, Wrench, Brain, Cpu, TerminalSquare, ArrowUp, Layers, ChevronLeft, ChevronRight, DollarSign, GitCommit, GitBranch, ChevronDown, Plus, Minus, Search, X } from "lucide-react";
+import {
+  BarChart, Bar, Cell as RechartsCell, Tooltip as RechartsTooltip,
+} from "recharts";
+import { ArrowLeft, Clock, MessageSquare, Wrench, Brain, Cpu, TerminalSquare, ArrowUp, Layers, ChevronLeft, ChevronRight, DollarSign, GitCommit, GitBranch, ChevronDown, Plus, Minus, Search, X, Target, TrendingUp, TrendingDown } from "lucide-react";
 import { estimateCost, getContextWindow } from "@/lib/cost";
+import { InfoPopover } from "@/components/info-popover";
 
 interface ContentBlock {
   type: string;
@@ -98,7 +102,35 @@ function formatCost(n: number) {
   return `$${n.toFixed(3)}`;
 }
 
-function MarkdownContent({ text }: { text: string }) {
+/** Highlight search matches within a plain text string */
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query.trim()) return <>{text}</>;
+  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  const parts = text.split(regex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} className="bg-amber-500/30 text-amber-200 rounded-sm px-0.5">{part}</mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
+function MarkdownContent({ text, searchQuery }: { text: string; searchQuery?: string }) {
+  // If searching, render as plain text with highlights for reliable highlighting
+  // (ReactMarkdown transforms the text structure, making regex highlighting unreliable)
+  if (searchQuery?.trim()) {
+    return (
+      <div className="whitespace-pre-wrap leading-relaxed">
+        <HighlightText text={text} query={searchQuery} />
+      </div>
+    );
+  }
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -144,10 +176,10 @@ function MarkdownContent({ text }: { text: string }) {
   );
 }
 
-function renderContent(content: string | ContentBlock[] | undefined, _isUser: boolean, toolUseMap?: Map<string, string>, hideTools?: boolean) {
+function renderContent(content: string | ContentBlock[] | undefined, _isUser: boolean, toolUseMap?: Map<string, string>, hideTools?: boolean, searchQuery?: string) {
   if (!content) return null;
   if (typeof content === "string") {
-    return <MarkdownContent text={content} />;
+    return <MarkdownContent text={content} searchQuery={searchQuery} />;
   }
 
   const blocks = hideTools ? content.filter((b) => b.type === "text" || b.type === "thinking") : content;
@@ -155,29 +187,30 @@ function renderContent(content: string | ContentBlock[] | undefined, _isUser: bo
   return blocks.map((block, i) => {
     if (block.type === "text" && block.text) {
       return (
-        <MarkdownContent key={i} text={block.text} />
+        <MarkdownContent key={i} text={block.text} searchQuery={searchQuery} />
       );
     }
     if (block.type === "thinking" && block.thinking) {
       return (
-        <details key={i} className="mt-2 mb-2 group">
+        <details key={i} className="mt-2 mb-2 group" open={!!searchQuery}>
           <summary className="text-xs text-amber-500/80 cursor-pointer flex items-center gap-1.5 hover:text-amber-400 transition-colors">
             <Brain size={12} /> Thinking
           </summary>
           <div className="mt-2 pl-4 border-l-2 border-amber-900/50 text-xs text-zinc-500 whitespace-pre-wrap max-h-60 overflow-auto leading-relaxed">
-            {block.thinking}
+            {searchQuery ? <HighlightText text={block.thinking} query={searchQuery} /> : block.thinking}
           </div>
         </details>
       );
     }
     if (block.type === "tool_use") {
+      const inputStr = JSON.stringify(block.input, null, 2);
       return (
-        <details key={i} className="mt-2 mb-2 bg-zinc-800/30 rounded-lg p-2.5 border border-zinc-700/20">
+        <details key={i} className="mt-2 mb-2 bg-zinc-800/30 rounded-lg p-2.5 border border-zinc-700/20" open={!!searchQuery}>
           <summary className="text-xs text-indigo-400/80 cursor-pointer flex items-center gap-1.5 hover:text-indigo-300 transition-colors">
             <Wrench size={12} /> {block.name}
           </summary>
           <pre className="mt-2 text-xs text-zinc-500 overflow-auto max-h-40 leading-relaxed">
-            {JSON.stringify(block.input, null, 2)}
+            {searchQuery ? <HighlightText text={inputStr} query={searchQuery} /> : inputStr}
           </pre>
         </details>
       );
@@ -187,14 +220,14 @@ function renderContent(content: string | ContentBlock[] | undefined, _isUser: bo
       if (!resultText) return null;
       const linkedTool = block.tool_use_id && toolUseMap ? toolUseMap.get(block.tool_use_id) : undefined;
       return (
-        <details key={i} className="mt-2 mb-2 bg-zinc-800/30 rounded-lg p-2.5 border border-zinc-700/20">
+        <details key={i} className="mt-2 mb-2 bg-zinc-800/30 rounded-lg p-2.5 border border-zinc-700/20" open={!!searchQuery}>
           <summary className={`text-xs cursor-pointer flex items-center gap-1.5 transition-colors ${block.is_error ? "text-red-400" : "text-zinc-500 hover:text-zinc-400"}`}>
             <TerminalSquare size={12} />
             {linkedTool ? <><span className="text-indigo-400/70">{linkedTool}</span> result</> : "Tool result"}
             {block.is_error ? " (error)" : ""}
           </summary>
           <pre className="mt-2 text-xs text-zinc-500 overflow-auto max-h-40 whitespace-pre-wrap leading-relaxed">
-            {resultText}
+            {searchQuery ? <HighlightText text={resultText} query={searchQuery} /> : resultText}
           </pre>
         </details>
       );
@@ -405,13 +438,250 @@ function getMessageSearchText(msg: ConversationMessage, textOnly: boolean): stri
   return parts.join(" ");
 }
 
+interface MetricsData {
+  session_id: string;
+  turn_count: number;
+  first_attempt_success_rate: number;
+  interruption_rate: number;
+  correction_rate: number;
+  tool_error_rate: number;
+  token_efficiency: number;
+  prompt_specificity: number;
+  error_loop_count: number;
+  thinking_effectiveness: number;
+  momentum: string;
+  overall_score: number;
+}
+
+interface TurnEventData {
+  turn_number: number;
+  event_type: string;
+  matched_rule: string;
+  tokens_wasted: number;
+}
+
+function ScoreRing({ score, size = 64 }: { score: number; size?: number }) {
+  const r = (size - 8) / 2;
+  const circumference = 2 * Math.PI * r;
+  const progress = (score / 100) * circumference;
+  const color = score >= 80 ? "#10b981" : score >= 50 ? "#f59e0b" : "#f43f5e";
+
+  return (
+    <svg width={size} height={size} className="shrink-0">
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#27272a" strokeWidth={4} />
+      <circle
+        cx={size / 2} cy={size / 2} r={r} fill="none"
+        stroke={color} strokeWidth={4} strokeLinecap="round"
+        strokeDasharray={`${progress} ${circumference}`}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
+      <text x={size / 2} y={size / 2 - 2} textAnchor="middle" dominantBaseline="central"
+        className="text-base font-bold" fill={color}>{Math.round(score)}</text>
+      <text x={size / 2} y={size / 2 + 14} textAnchor="middle"
+        className="text-[9px]" fill="#71717a">Score</text>
+    </svg>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function TurnTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  return (
+    <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 shadow-xl">
+      <p className="text-xs text-zinc-400">Turn {d?.turn}</p>
+      <p className="text-xs capitalize" style={{ color: d?.color }}>{d?.event}</p>
+      {d?.rule && <p className="text-[10px] text-zinc-500">{d.rule}</p>}
+    </div>
+  );
+}
+
+function PromptEffectivenessSection({ sessionId }: { sessionId: string }) {
+  const [metrics, setMetrics] = useState<MetricsData | null>(null);
+  const [events, setEvents] = useState<TurnEventData[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/sessions/${sessionId}/metrics`)
+      .then((r) => r.json())
+      .then((d) => {
+        setMetrics(d.metrics || null);
+        setEvents(d.events || []);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [sessionId]);
+
+  if (!loaded || !metrics) return null;
+
+  const scoreColor = metrics.overall_score >= 80 ? "badge-emerald" : metrics.overall_score >= 50 ? "badge-amber" : "badge-rose";
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+
+  // Build turn chart data
+  const eventColorMap: Record<string, string> = {
+    success: "#10b981",
+    correction: "#f59e0b",
+    interruption: "#f43f5e",
+    error_loop: "#ef4444",
+  };
+
+  // Group events by turn, pick primary event for chart
+  const turnChartData: { turn: number; value: number; color: string; event: string; rule: string }[] = [];
+  const turnEventMap = new Map<number, TurnEventData>();
+  for (const e of events) {
+    if (e.event_type !== "error_loop" && !turnEventMap.has(e.turn_number)) {
+      turnEventMap.set(e.turn_number, e);
+    }
+  }
+  for (let i = 0; i < metrics.turn_count; i++) {
+    const e = turnEventMap.get(i);
+    const eventType = e?.event_type || "success";
+    turnChartData.push({
+      turn: i + 1,
+      value: 1,
+      color: eventColorMap[eventType] || "#10b981",
+      event: eventType,
+      rule: e?.matched_rule || "",
+    });
+  }
+
+  return (
+    <div className="bg-zinc-900/50 border border-zinc-800/40 rounded-2xl mb-8 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/20 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Target size={16} className="text-cyan-400" />
+          <span className="text-sm font-medium text-zinc-200">Prompt Effectiveness</span>
+          <InfoPopover title="Prompt Effectiveness Score">
+            <p>Measures how efficiently your prompts drove Claude to the desired outcome. The <strong className="text-zinc-300">overall score (0-100)</strong> is a weighted composite:</p>
+            <div className="mt-1.5 space-y-1">
+              <p><strong className="text-zinc-300">Success Rate (35%)</strong> — Turns where Claude&apos;s first response was accepted without correction or interruption.</p>
+              <p><strong className="text-zinc-300">Low Interruptions (15%)</strong> — Fewer manual interruptions means prompts were scoped well enough to let Claude finish.</p>
+              <p><strong className="text-zinc-300">Low Corrections (15%)</strong> — Detected when your next message starts with &quot;no&quot;, &quot;actually&quot;, &quot;undo&quot;, etc. Fewer corrections = clearer initial prompts.</p>
+              <p><strong className="text-zinc-300">Low Tool Errors (15%)</strong> — Ratio of failed tool calls to total. High error rates often indicate ambiguous file paths or missing context.</p>
+              <p><strong className="text-zinc-300">Prompt Specificity (10%)</strong> — Scored from your first prompt: word count, presence of code blocks, file paths, and lists.</p>
+              <p><strong className="text-zinc-300">No Error Loops (10%)</strong> — Penalizes sessions where the same tool failed 3+ times in a row (e.g., repeated Bash errors).</p>
+            </div>
+            <p className="mt-2 text-zinc-500">Color coding: <span className="text-emerald-400">green 80+</span> · <span className="text-amber-400">amber 50-79</span> · <span className="text-rose-400">red &lt;50</span></p>
+          </InfoPopover>
+          <span className={`badge ${scoreColor}`}>{Math.round(metrics.overall_score)}/100</span>
+          <span className="text-xs text-emerald-400/70">{pct(metrics.first_attempt_success_rate)} success</span>
+          {metrics.interruption_rate > 0 && (
+            <span className="text-xs text-rose-400/70">{pct(metrics.interruption_rate)} interrupted</span>
+          )}
+          <span className="text-xs text-zinc-500">{metrics.momentum}</span>
+        </div>
+        <ChevronDown size={16} className={`text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="border-t border-zinc-800/40 p-5 space-y-5">
+          {/* Row 1: Score ring + stat cards */}
+          <div className="flex items-center gap-5">
+            <ScoreRing score={metrics.overall_score} />
+            <div className="grid grid-cols-2 gap-3 flex-1">
+              <div className="bg-zinc-800/30 rounded-lg p-3">
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Success Rate</p>
+                <p className="text-lg font-semibold text-emerald-400">{pct(metrics.first_attempt_success_rate)}</p>
+              </div>
+              <div className="bg-zinc-800/30 rounded-lg p-3">
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Correction Rate</p>
+                <p className={`text-lg font-semibold ${metrics.correction_rate > 0.15 ? "text-amber-400" : "text-zinc-300"}`}>
+                  {pct(metrics.correction_rate)}
+                </p>
+              </div>
+              <div className="bg-zinc-800/30 rounded-lg p-3">
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Interruption Rate</p>
+                <p className={`text-lg font-semibold ${metrics.interruption_rate > 0.1 ? "text-rose-400" : "text-zinc-300"}`}>
+                  {pct(metrics.interruption_rate)}
+                </p>
+              </div>
+              <div className="bg-zinc-800/30 rounded-lg p-3">
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Tool Error Rate</p>
+                <p className="text-lg font-semibold text-zinc-300">{pct(metrics.tool_error_rate)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: Tier 2 insight chips */}
+          <div className="flex flex-wrap items-center gap-2">
+            <InfoPopover title="Tier 2 Metrics">
+              <div className="space-y-1.5">
+                <p><strong className="text-zinc-300">Specificity</strong> — How detailed your opening prompt was. Scores word count (30+ words = 100%), plus bonuses for code blocks (+15%), file paths (+10%), and bullet lists (+10%).</p>
+                <p><strong className="text-zinc-300">Error Loops</strong> — Times the same tool failed 3+ times consecutively in a turn. Usually means Claude is stuck retrying a broken command. Red if any detected.</p>
+                <p><strong className="text-zinc-300">Thinking Effectiveness</strong> — Difference in success rate between turns where Claude used extended thinking vs. turns without. Positive means thinking helped.</p>
+                <p><strong className="text-zinc-300">Momentum</strong> — Compares success rate in the first quarter of turns vs. the last quarter. &quot;Accelerating&quot; means you/Claude improved over the session; &quot;decelerating&quot; means quality dropped.</p>
+                <p><strong className="text-zinc-300">Token Efficiency</strong> — Average output tokens per turn. Lower is generally better for the same amount of work accomplished.</p>
+              </div>
+            </InfoPopover>
+            <span className="inline-flex items-center gap-1.5 text-[11px] bg-zinc-800/40 rounded-md px-2.5 py-1 text-zinc-400">
+              Specificity
+              <span className="inline-block w-12 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                <span className="block h-full bg-cyan-400 rounded-full" style={{ width: `${metrics.prompt_specificity * 100}%` }} />
+              </span>
+              {Math.round(metrics.prompt_specificity * 100)}%
+            </span>
+            <span className={`inline-flex items-center gap-1 text-[11px] rounded-md px-2.5 py-1 ${metrics.error_loop_count > 0 ? "bg-rose-950/30 text-rose-400" : "bg-zinc-800/40 text-zinc-400"}`}>
+              Error loops: {metrics.error_loop_count}
+            </span>
+            {metrics.thinking_effectiveness !== 0 && (
+              <span className={`inline-flex items-center gap-1 text-[11px] rounded-md px-2.5 py-1 ${metrics.thinking_effectiveness > 0 ? "bg-emerald-950/30 text-emerald-400" : "bg-rose-950/30 text-rose-400"}`}>
+                {metrics.thinking_effectiveness > 0 ? "+" : ""}{Math.round(metrics.thinking_effectiveness * 100)}% with thinking
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1 text-[11px] bg-zinc-800/40 rounded-md px-2.5 py-1 text-zinc-400">
+              {metrics.momentum === "accelerating" && <TrendingUp size={11} className="text-emerald-400" />}
+              {metrics.momentum === "decelerating" && <TrendingDown size={11} className="text-rose-400" />}
+              {metrics.momentum === "stable" && <Minus size={11} />}
+              {metrics.momentum}
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] bg-zinc-800/40 rounded-md px-2.5 py-1 text-zinc-400">
+              {formatTokens(Math.round(metrics.token_efficiency))} tok/turn
+            </span>
+          </div>
+
+          {/* Row 3: Turn timeline */}
+          {turnChartData.length > 1 && (
+            <details className="group">
+              <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400 transition-colors">
+                Turn-by-turn breakdown ({metrics.turn_count} turns)
+              </summary>
+              <div className="mt-3">
+                <ResponsiveContainer width="100%" height={60}>
+                  <BarChart data={turnChartData} barCategoryGap={1}>
+                    <RechartsTooltip content={<TurnTooltip />} />
+                    <Bar dataKey="value" radius={[2, 2, 0, 0]}>
+                      {turnChartData.map((d, i) => (
+                        <RechartsCell key={i} fill={d.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="flex gap-4 mt-2 text-[10px] text-zinc-600">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500 inline-block" />Success</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-500 inline-block" />Correction</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-500 inline-block" />Interruption</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500 inline-block" />Error loop</span>
+                </div>
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SessionDetailPage() {
   const params = useParams();
   const [data, setData] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [page, setPage] = useState(0);
-  const [hideTools, setHideTools] = useState(false);
+  const [hideTools, setHideTools] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchActive, setSearchActive] = useState(false);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
@@ -454,41 +724,41 @@ export default function SessionDetailPage() {
     });
   }, [conversation, hideTools]);
 
-  // Search: find matching message indices within filteredConversation
-  const searchMatches = useMemo(() => {
-    if (!searchQuery.trim()) return [];
+  // Search: filter to only matching messages, respecting text-only mode
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return null;
     const query = searchQuery.toLowerCase();
-    const matches: number[] = [];
-    for (let i = 0; i < filteredConversation.length; i++) {
-      const text = getMessageSearchText(filteredConversation[i], hideTools);
-      if (text.toLowerCase().includes(query)) {
-        matches.push(i);
-      }
-    }
-    return matches;
+    return filteredConversation.filter((m) => {
+      const text = getMessageSearchText(m, hideTools);
+      return text.toLowerCase().includes(query);
+    });
   }, [filteredConversation, searchQuery, hideTools]);
 
-  // Navigate to a specific match
-  const goToMatch = useCallback((matchIdx: number) => {
-    if (matchIdx < 0 || matchIdx >= searchMatches.length) return;
-    setCurrentMatchIndex(matchIdx);
-    const msgIndex = searchMatches[matchIdx];
-    const targetPage = Math.floor(msgIndex / PAGE_SIZE);
-    setPage(targetPage);
-    setTimeout(() => {
-      const el = document.querySelector(`[data-msg-index="${msgIndex}"]`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 100);
-  }, [searchMatches, PAGE_SIZE]);
+  // The list to display: search results when searching, full conversation otherwise
+  const displayConversation = searchResults ?? filteredConversation;
 
-  // Reset match index when query changes
+  // Reset page when search changes
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
     setCurrentMatchIndex(0);
+    setPage(0);
     if (value.trim()) {
       setSearchActive(true);
     }
   }, []);
+
+  // Navigate between matches (pages through search results)
+  const goToMatch = useCallback((matchIdx: number) => {
+    if (!searchResults || searchResults.length === 0) return;
+    const idx = ((matchIdx % searchResults.length) + searchResults.length) % searchResults.length;
+    setCurrentMatchIndex(idx);
+    const targetPage = Math.floor(idx / PAGE_SIZE);
+    setPage(targetPage);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-msg-index="${idx}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+  }, [searchResults, PAGE_SIZE]);
 
   // Keyboard shortcut: Ctrl/Cmd+F to open search, Escape to close, Enter for next match
   useEffect(() => {
@@ -501,37 +771,66 @@ export default function SessionDetailPage() {
       if (e.key === "Escape" && searchActive) {
         setSearchActive(false);
         setSearchQuery("");
+        setPage(0);
       }
-      if (e.key === "Enter" && searchActive && searchMatches.length > 0) {
+      if (e.key === "Enter" && searchActive && searchResults && searchResults.length > 0) {
         e.preventDefault();
         if (e.shiftKey) {
-          goToMatch((currentMatchIndex - 1 + searchMatches.length) % searchMatches.length);
+          goToMatch(currentMatchIndex - 1);
         } else {
-          goToMatch((currentMatchIndex + 1) % searchMatches.length);
+          goToMatch(currentMatchIndex + 1);
         }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [searchActive, searchMatches, currentMatchIndex, goToMatch]);
+  }, [searchActive, searchResults, currentMatchIndex, goToMatch]);
 
-  // The set of message indices on the current page that are matches (for highlighting)
-  const currentPageMatchSet = useMemo(() => {
-    const set = new Set<number>();
-    const start = page * PAGE_SIZE;
-    const end = start + PAGE_SIZE;
-    for (const idx of searchMatches) {
-      if (idx >= start && idx < end) set.add(idx);
-    }
-    return set;
-  }, [searchMatches, page, PAGE_SIZE]);
+  // After search results render: expand collapsed <details>, scroll inner containers to first <mark> per message
+  useEffect(() => {
+    if (!searchQuery) return;
+    const timer = setTimeout(() => {
+      // Process each message card individually
+      const msgCards = document.querySelectorAll("[data-msg-index]");
+      for (const card of msgCards) {
+        const firstMark = card.querySelector("mark");
+        if (!firstMark) continue;
 
-  const focusedMsgIndex = searchMatches.length > 0 ? searchMatches[currentMatchIndex] : -1;
+        // Expand any ancestor <details> within this card
+        let el: HTMLElement | null = firstMark.parentElement;
+        while (el && el !== card) {
+          if (el.tagName === "DETAILS" && !(el as HTMLDetailsElement).open) {
+            (el as HTMLDetailsElement).open = true;
+          }
+          el = el.parentElement;
+        }
+
+        // Scroll any scrollable ancestor container (e.g. <pre> with overflow) to the mark
+        let scrollParent: HTMLElement | null = firstMark.parentElement;
+        while (scrollParent && scrollParent !== card) {
+          const overflowsV = scrollParent.scrollHeight > scrollParent.clientHeight;
+          const overflowsH = scrollParent.scrollWidth > scrollParent.clientWidth;
+          if (overflowsV || overflowsH) {
+            const parentRect = scrollParent.getBoundingClientRect();
+            const markRect = firstMark.getBoundingClientRect();
+            if (overflowsV) {
+              scrollParent.scrollTop += markRect.top - parentRect.top - parentRect.height / 3;
+            }
+            if (overflowsH) {
+              scrollParent.scrollLeft += markRect.left - parentRect.left - parentRect.width / 3;
+            }
+          }
+          scrollParent = scrollParent.parentElement;
+        }
+      }
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [searchQuery, page]);
 
   // Early returns after all hooks
   if (loading) {
     return (
-      <div className="p-8 max-w-4xl mx-auto relative z-10">
+      <div className="px-6 py-8 max-w-6xl mx-auto relative z-10">
         <div className="skeleton h-4 w-32 mb-6" />
         <div className="skeleton h-40 w-full rounded-xl mb-6" />
         <div className="space-y-4">
@@ -572,7 +871,7 @@ export default function SessionDetailPage() {
   );
 
   return (
-    <div className="p-8 max-w-4xl mx-auto relative z-10">
+    <div className="px-6 py-8 max-w-6xl mx-auto relative z-10">
       <Link href="/sessions" className="inline-flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-300 mb-6 transition-colors">
         <ArrowLeft size={13} /> Back to sessions
       </Link>
@@ -637,67 +936,65 @@ export default function SessionDetailPage() {
         </div>
       </div>
 
-      {/* Git Activity */}
-      <GitActivitySection sessionId={session.id} />
-
-      {/* Context Pressure Chart */}
-      <ContextPressureChart conversation={conversation} model={session.model_used || ""} />
-
-      {/* Search bar */}
+      {/* Search bar — fixed to top of main content area */}
       {searchActive && (
-        <div className="flex items-center gap-2 mb-3 bg-zinc-900/70 border border-zinc-700/50 rounded-lg px-3 py-2">
-          <Search size={14} className="text-zinc-500 shrink-0" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            placeholder={hideTools ? "Search text messages..." : "Search all messages..."}
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            className="flex-1 bg-transparent text-sm placeholder:text-zinc-600 focus:outline-none"
-            autoFocus
-          />
-          {searchQuery && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[11px] text-zinc-500">
-                {searchMatches.length > 0
-                  ? `${currentMatchIndex + 1} of ${searchMatches.length}`
-                  : "No matches"}
-              </span>
-              <button
-                onClick={() => goToMatch((currentMatchIndex - 1 + searchMatches.length) % searchMatches.length)}
-                disabled={searchMatches.length === 0}
-                className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30 transition-colors"
-              >
-                <ChevronLeft size={14} className="text-zinc-400" />
-              </button>
-              <button
-                onClick={() => goToMatch((currentMatchIndex + 1) % searchMatches.length)}
-                disabled={searchMatches.length === 0}
-                className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30 transition-colors"
-              >
-                <ChevronRight size={14} className="text-zinc-400" />
-              </button>
-            </div>
-          )}
-          <button
-            onClick={() => { setSearchActive(false); setSearchQuery(""); }}
-            className="p-1 rounded hover:bg-zinc-800 transition-colors shrink-0"
-          >
-            <X size={14} className="text-zinc-500" />
-          </button>
-        </div>
+        <>
+          <div className="flex items-center gap-2 bg-zinc-950/95 border border-zinc-700/50 rounded-lg px-3 py-2 fixed top-3 left-[calc(15rem+1.5rem)] right-6 z-30 backdrop-blur-sm shadow-xl">
+            <Search size={14} className="text-zinc-500 shrink-0" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder={hideTools ? "Search text messages..." : "Search all messages..."}
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="flex-1 bg-transparent text-sm placeholder:text-zinc-600 focus:outline-none"
+              autoFocus
+            />
+            {searchQuery && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-[11px] text-zinc-500">
+                  {searchResults && searchResults.length > 0
+                    ? `${currentMatchIndex + 1}/${searchResults.length}`
+                    : "No matches"}
+                </span>
+                <button
+                  onClick={() => goToMatch(currentMatchIndex - 1)}
+                  disabled={!searchResults || searchResults.length === 0}
+                  className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+                >
+                  <ChevronLeft size={14} className="text-zinc-400" />
+                </button>
+                <button
+                  onClick={() => goToMatch(currentMatchIndex + 1)}
+                  disabled={!searchResults || searchResults.length === 0}
+                  className="p-1 rounded hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+                >
+                  <ChevronRight size={14} className="text-zinc-400" />
+                </button>
+              </div>
+            )}
+            <button
+              onClick={() => { setSearchActive(false); setSearchQuery(""); setPage(0); }}
+              className="p-1 rounded hover:bg-zinc-800 transition-colors shrink-0"
+            >
+              <X size={14} className="text-zinc-500" />
+            </button>
+          </div>
+          {/* Spacer so content isn't hidden behind the fixed bar */}
+          <div className="h-12" />
+        </>
       )}
 
       {/* View mode toggle + Pagination header */}
       {(() => {
-        const totalPages = Math.ceil(filteredConversation.length / PAGE_SIZE);
+        const totalPages = Math.ceil(displayConversation.length / PAGE_SIZE);
         const start = page * PAGE_SIZE;
-        const end = Math.min(start + PAGE_SIZE, filteredConversation.length);
+        const end = Math.min(start + PAGE_SIZE, displayConversation.length);
         return (
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
               <p className="text-[11px] text-zinc-600">
-                Messages {start + 1}–{end} of {filteredConversation.length}
+                {searchResults ? `${displayConversation.length} results` : `Messages ${start + 1}–${end} of ${displayConversation.length}`}
               </p>
               <button
                 onClick={() => { setHideTools(!hideTools); setPage(0); setSearchQuery(""); setCurrentMatchIndex(0); }}
@@ -749,10 +1046,9 @@ export default function SessionDetailPage() {
         <div className="absolute left-5 top-0 bottom-0 w-px bg-zinc-800/60" />
 
         <div className="space-y-3">
-          {filteredConversation.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((msg, i) => {
+          {displayConversation.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((msg, i) => {
             const globalIndex = page * PAGE_SIZE + i;
-            const isMatch = currentPageMatchSet.has(globalIndex);
-            const isFocusedMatch = globalIndex === focusedMsgIndex;
+            const isFocusedMatch = searchResults ? globalIndex === currentMatchIndex : false;
 
             if (msg.type === "system") {
               return (
@@ -785,13 +1081,15 @@ export default function SessionDetailPage() {
                     if (!resultText) return null;
                     const linkedTool = block.tool_use_id ? toolUseMap.get(block.tool_use_id) : undefined;
                     return (
-                      <details key={j} className="bg-zinc-800/20 border border-zinc-800/30 rounded-lg p-2">
+                      <details key={j} className="bg-zinc-800/20 border border-zinc-800/30 rounded-lg p-2" open={!!searchQuery}>
                         <summary className={`text-xs cursor-pointer flex items-center gap-1 ${block.is_error ? "text-red-400" : "text-zinc-600"}`}>
                           <TerminalSquare size={11} />
                           {linkedTool ? <><span className="text-indigo-400/70">{linkedTool}</span> result</> : "Tool result"}
                           {block.is_error ? " (error)" : ""}
                         </summary>
-                        <pre className="mt-1 text-xs text-zinc-600 overflow-auto max-h-40 whitespace-pre-wrap">{resultText}</pre>
+                        <pre className="mt-1 text-xs text-zinc-600 overflow-auto max-h-40 whitespace-pre-wrap">
+                          {searchQuery ? <HighlightText text={resultText} query={searchQuery} /> : resultText}
+                        </pre>
                       </details>
                     );
                   })}
@@ -811,7 +1109,7 @@ export default function SessionDetailPage() {
                     isUser
                       ? "bg-indigo-950/20 border border-indigo-900/30"
                       : "bg-zinc-900/40 border border-zinc-800/40"
-                  } ${isFocusedMatch ? "ring-2 ring-amber-500/70 border-amber-500/40" : isMatch ? "ring-1 ring-indigo-500/30" : ""}`}
+                  } ${isFocusedMatch ? "ring-2 ring-amber-500/70 border-amber-500/40" : ""}`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className={`text-xs font-semibold ${isUser ? "text-indigo-400" : "text-emerald-400"}`}>
@@ -826,7 +1124,7 @@ export default function SessionDetailPage() {
                     </div>
                   </div>
                   <div className="text-sm text-zinc-300 leading-relaxed">
-                    {renderContent(msg.content, isUser, toolUseMap, hideTools)}
+                    {renderContent(msg.content, isUser, toolUseMap, hideTools, searchQuery || undefined)}
                   </div>
                 </div>
               </div>
@@ -837,7 +1135,7 @@ export default function SessionDetailPage() {
 
       {/* Bottom pagination */}
       {(() => {
-        const totalPages = Math.ceil(filteredConversation.length / PAGE_SIZE);
+        const totalPages = Math.ceil(displayConversation.length / PAGE_SIZE);
         if (totalPages <= 1) return null;
         return (
           <div className="flex items-center justify-center gap-1.5 mt-6">
@@ -861,6 +1159,14 @@ export default function SessionDetailPage() {
           </div>
         );
       })()}
+
+      {/* Session insights — below transcript */}
+      <div className="mt-10 space-y-6">
+        <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Session Insights</h2>
+        <PromptEffectivenessSection sessionId={session.id} />
+        <ContextPressureChart conversation={conversation} model={session.model_used || ""} />
+        <GitActivitySection sessionId={session.id} />
+      </div>
 
       {/* Scroll to top button */}
       {showScrollTop && (

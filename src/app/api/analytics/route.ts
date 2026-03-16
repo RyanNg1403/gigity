@@ -98,6 +98,18 @@ export async function GET() {
   // Total cost
   const totalCost = modelCosts.reduce((sum, m) => sum + m.estimated_cost, 0);
 
+  // Daily token usage from sessions (authoritative, not stats-cache)
+  const dailyTokens = db
+    .prepare(`
+      SELECT DATE(created_at) as date,
+        SUM(total_input_tokens + total_output_tokens + total_cache_read_tokens + total_cache_creation_tokens) as tokens,
+        SUM(message_count) as messages,
+        SUM(tool_call_count) as tools
+      FROM sessions WHERE created_at IS NOT NULL
+      GROUP BY date ORDER BY date
+    `)
+    .all() as { date: string; tokens: number; messages: number; tools: number }[];
+
   // Daily cost trend
   const dailyCostRows = db
     .prepare(`
@@ -127,8 +139,48 @@ export async function GET() {
     .map(([date, cost]) => ({ date, cost: Math.round(cost * 100) / 100 }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  // Prompt effectiveness aggregates
+  const effectivenessAgg = db.prepare(`
+    SELECT
+      AVG(overall_score) as avg_score,
+      AVG(first_attempt_success_rate) as avg_success_rate,
+      SUM(error_loop_count) as total_error_loops,
+      SUM(CASE WHEN momentum = 'stable' THEN 1 ELSE 0 END) as stable_count,
+      SUM(CASE WHEN momentum = 'accelerating' THEN 1 ELSE 0 END) as accelerating_count,
+      SUM(CASE WHEN momentum = 'decelerating' THEN 1 ELSE 0 END) as decelerating_count,
+      COUNT(*) as total_scored
+    FROM session_metrics
+  `).get() as Record<string, number> | undefined;
+
+  // Score distribution buckets
+  const scoreDistribution = db.prepare(`
+    SELECT
+      CASE
+        WHEN overall_score >= 90 THEN '90-100'
+        WHEN overall_score >= 80 THEN '80-89'
+        WHEN overall_score >= 70 THEN '70-79'
+        WHEN overall_score >= 60 THEN '60-69'
+        WHEN overall_score >= 50 THEN '50-59'
+        ELSE '<50'
+      END as bucket,
+      COUNT(*) as count
+    FROM session_metrics
+    GROUP BY bucket
+    ORDER BY bucket DESC
+  `).all() as { bucket: string; count: number }[];
+
+  // Daily effectiveness trend
+  const dailyEffectiveness = db.prepare(`
+    SELECT DATE(computed_at) as date, AVG(overall_score) as avg_score, COUNT(*) as session_count
+    FROM session_metrics
+    WHERE computed_at IS NOT NULL
+    GROUP BY date
+    ORDER BY date
+  `).all() as { date: string; avg_score: number; session_count: number }[];
+
   return NextResponse.json({
     dailyStats: dailyStats.reverse(),
+    dailyTokens,
     modelUsage: modelCosts,
     topTools,
     hourlyActivity,
@@ -136,5 +188,8 @@ export async function GET() {
     totals: { ...totals, total_cost: Math.round(totalCost * 100) / 100 },
     projectStats,
     dailyCosts,
+    effectivenessAgg: effectivenessAgg || null,
+    scoreDistribution,
+    dailyEffectiveness,
   });
 }

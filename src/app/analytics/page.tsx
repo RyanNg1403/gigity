@@ -14,7 +14,9 @@ import {
   Pie,
   Cell,
   CartesianGrid,
+  ReferenceLine,
 } from "recharts";
+import { InfoPopover } from "@/components/info-popover";
 
 interface Analytics {
   dailyStats: { date: string; message_count: number; session_count: number; tool_call_count: number; tokens_by_model: string }[];
@@ -24,7 +26,19 @@ interface Analytics {
   branchActivity: { git_branch: string; session_count: number; total_messages: number }[];
   totals: Record<string, number>;
   projectStats: { name: string; id: string; session_count: number; total_messages: number; total_tool_calls: number }[];
+  dailyTokens: { date: string; tokens: number; messages: number; tools: number }[];
   dailyCosts: { date: string; cost: number }[];
+  effectivenessAgg: {
+    avg_score: number;
+    avg_success_rate: number;
+    total_error_loops: number;
+    stable_count: number;
+    accelerating_count: number;
+    decelerating_count: number;
+    total_scored: number;
+  } | null;
+  scoreDistribution: { bucket: string; count: number }[];
+  dailyEffectiveness: { date: string; avg_score: number; session_count: number }[];
 }
 
 const COLORS = ["#6366f1", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"];
@@ -85,7 +99,7 @@ export default function AnalyticsPage() {
 
   if (!data) {
     return (
-      <div className="p-8 max-w-7xl mx-auto relative z-10">
+      <div className="px-6 py-8 max-w-[1600px] mx-auto relative z-10">
         <div className="skeleton h-8 w-32 mb-8" />
         <div className="skeleton h-[300px] w-full rounded-xl mb-6" />
         <div className="grid grid-cols-2 gap-6">
@@ -96,26 +110,17 @@ export default function AnalyticsPage() {
     );
   }
 
-  // Build a unified date set from both sources for aligned x-axes
+  // Build unified date set from session-based sources for aligned x-axes
   const allDatesSet = new Set<string>();
-  for (const d of data.dailyStats) allDatesSet.add(d.date);
+  for (const d of (data.dailyTokens || [])) allDatesSet.add(d.date);
   for (const d of (data.dailyCosts || [])) allDatesSet.add(d.date);
   const allDates = Array.from(allDatesSet).sort();
 
   const costByDate = new Map((data.dailyCosts || []).map((d) => [d.date, d.cost]));
-  const tokensByDate = new Map(data.dailyStats.map((d) => {
-    let totalTokens = 0;
-    try {
-      const parsed = JSON.parse(d.tokens_by_model || "{}");
-      totalTokens = Object.values(parsed).reduce((a: number, b) => a + (b as number), 0);
-    } catch { /* ignore */ }
-    return [d.date, { messages: d.message_count, tools: d.tool_call_count, tokens: totalTokens }] as const;
-  }));
+  const tokensByDate = new Map((data.dailyTokens || []).map((d) => [d.date, d]));
 
   const dailyTokens = allDates.map((date) => ({
     date: formatDate(date),
-    messages: tokensByDate.get(date)?.messages || 0,
-    tools: tokensByDate.get(date)?.tools || 0,
     tokens: tokensByDate.get(date)?.tokens || 0,
   }));
 
@@ -132,7 +137,7 @@ export default function AnalyticsPage() {
   const totalCost = data.totals.total_cost || 0;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto relative z-10">
+    <div className="px-6 py-8 max-w-[1600px] mx-auto relative z-10">
       <h1 className="text-3xl font-semibold tracking-tight mb-8">Analytics</h1>
 
       {/* Token usage — area chart */}
@@ -221,7 +226,7 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-2 gap-6 mb-8">
         {/* Model token breakdown with cost */}
         <div className="bg-zinc-900/50 border border-zinc-800/40 rounded-xl p-6">
           <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-5">Cost by Model</h2>
@@ -272,6 +277,110 @@ export default function AnalyticsPage() {
           )}
         </div>
       </div>
+
+      {/* Prompt Effectiveness Insights */}
+      {data.effectivenessAgg && data.effectivenessAgg.total_scored > 0 && (
+        <>
+          <div className="grid grid-cols-2 gap-6 mb-4">
+            {/* Score Distribution */}
+            <div className="bg-zinc-900/50 border border-zinc-800/40 rounded-xl p-6">
+              <div className="flex items-center gap-2 mb-5">
+                <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Score Distribution</h2>
+                <InfoPopover title="Score Distribution">
+                  <p>Shows how your sessions are distributed across effectiveness score buckets.</p>
+                  <p className="mt-1.5">Each session gets a <strong className="text-zinc-300">0-100 score</strong> based on how efficiently your prompts led to accepted outcomes — weighing success rate, corrections, interruptions, tool errors, prompt specificity, and error loops.</p>
+                  <div className="mt-1.5 space-y-1">
+                    <p><span className="text-emerald-400">Green (80+)</span> — Strong prompting: clear instructions, few corrections needed.</p>
+                    <p><span className="text-amber-400">Amber (50-79)</span> — Room for improvement: some corrections or vague initial prompts.</p>
+                    <p><span className="text-rose-400">Red (&lt;50)</span> — High friction: frequent interruptions, corrections, or error loops.</p>
+                  </div>
+                  <p className="mt-1.5 text-zinc-500">Tip: Click into low-scoring sessions to see which turns triggered corrections or errors.</p>
+                </InfoPopover>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={(() => {
+                  const buckets = ["90-100", "80-89", "70-79", "60-69", "50-59", "<50"];
+                  const distMap = new Map(data.scoreDistribution.map((d) => [d.bucket, d.count]));
+                  return buckets.map((b) => ({
+                    bucket: b,
+                    count: distMap.get(b) || 0,
+                    fill: b === "90-100" || b === "80-89" ? "#10b981" : b === "70-79" || b === "60-69" ? "#f59e0b" : "#f43f5e",
+                  }));
+                })()} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "#52525b" }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="bucket" tick={{ fontSize: 11, fill: "#52525b" }} axisLine={false} tickLine={false} width={50} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="count" radius={[0, 3, 3, 0]} name="Sessions">
+                    {(() => {
+                      const buckets = ["90-100", "80-89", "70-79", "60-69", "50-59", "<50"];
+                      const distMap = new Map(data.scoreDistribution.map((d) => [d.bucket, d.count]));
+                      return buckets.map((b) => ({
+                        bucket: b,
+                        count: distMap.get(b) || 0,
+                        fill: b === "90-100" || b === "80-89" ? "#10b981" : b === "70-79" || b === "60-69" ? "#f59e0b" : "#f43f5e",
+                      }));
+                    })().map((d, i) => (
+                      <Cell key={i} fill={d.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Effectiveness Trend */}
+            <div className="bg-zinc-900/50 border border-zinc-800/40 rounded-xl p-6">
+              <div className="flex items-center gap-2 mb-5">
+                <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Effectiveness Trend</h2>
+                <InfoPopover title="Effectiveness Trend">
+                  <p>Daily average of prompt effectiveness scores across all sessions.</p>
+                  <p className="mt-1.5">The <strong className="text-zinc-300">dashed line at 70</strong> is a reference threshold — sessions above this line generally had clear prompts with minimal corrections.</p>
+                  <p className="mt-1.5">An upward trend means you&apos;re getting better at prompting over time (clearer instructions, fewer retries). A downward trend may indicate increasingly complex tasks or prompt fatigue.</p>
+                  <p className="mt-1.5 text-zinc-500">Needs at least 2 days of data to display the chart.</p>
+                </InfoPopover>
+              </div>
+              {data.dailyEffectiveness.length > 1 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={data.dailyEffectiveness.map((d) => ({ ...d, date: formatDate(d.date), score: Math.round(d.avg_score) }))}>
+                    <defs>
+                      <linearGradient id="effectGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#52525b" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "#52525b" }} axisLine={false} tickLine={false} domain={[0, 100]} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <ReferenceLine y={70} stroke="#52525b" strokeDasharray="6 3" strokeWidth={1} />
+                    <Area type="monotone" dataKey="score" stroke="#6366f1" strokeWidth={2} fill="url(#effectGradient)" name="Avg Score" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-zinc-600 text-sm">Not enough data for trend chart</p>
+              )}
+            </div>
+          </div>
+
+          {/* Summary strip */}
+          <div className="flex items-center gap-2 text-xs text-zinc-600 mb-8">
+            <InfoPopover title="Summary Metrics">
+              <div className="space-y-1.5">
+                <p><strong className="text-zinc-300">Avg Score</strong> — Mean effectiveness score across all scored sessions.</p>
+                <p><strong className="text-zinc-300">Avg Success</strong> — Mean first-attempt success rate: turns where Claude&apos;s response was accepted without correction.</p>
+                <p><strong className="text-zinc-300">Error Loops</strong> — Total count of times the same tool failed 3+ times in a row across all sessions.</p>
+                <p><strong className="text-zinc-300">Momentum breakdown</strong> — How sessions ended relative to how they started. &quot;Stable&quot; = consistent quality; &quot;Accelerating&quot; = improvement within session; &quot;Decelerating&quot; = quality dropped toward the end.</p>
+              </div>
+            </InfoPopover>
+            <span>Avg Score: {Math.round(data.effectivenessAgg.avg_score)}
+            {" · "}Avg Success: {Math.round((data.effectivenessAgg.avg_success_rate || 0) * 100)}%
+            {" · "}Error Loops: {data.effectivenessAgg.total_error_loops || 0}
+            {" · "}{Math.round(((data.effectivenessAgg.stable_count || 0) / data.effectivenessAgg.total_scored) * 100)}% stable
+            {" · "}{Math.round(((data.effectivenessAgg.accelerating_count || 0) / data.effectivenessAgg.total_scored) * 100)}% accelerating
+            {" · "}{Math.round(((data.effectivenessAgg.decelerating_count || 0) / data.effectivenessAgg.total_scored) * 100)}% decelerating
+          </span></div>
+        </>
+      )}
     </div>
   );
 }

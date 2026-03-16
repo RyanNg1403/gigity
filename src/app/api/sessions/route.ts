@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(url.searchParams.get("limit") || "50");
   const offset = parseInt(url.searchParams.get("offset") || "0");
 
-  let query = `SELECT s.*, p.name as project_name FROM sessions s JOIN projects p ON s.project_id = p.id`;
+  let query = `SELECT s.*, p.name as project_name, m.overall_score FROM sessions s JOIN projects p ON s.project_id = p.id LEFT JOIN session_metrics m ON s.id = m.session_id`;
   const conditions: string[] = [];
   const params: (string | number)[] = [];
 

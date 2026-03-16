@@ -95,5 +95,50 @@ function initSchema(db: Database.Database) {
       content='',
       tokenize='unicode61'
     );
+
+    CREATE TABLE IF NOT EXISTS session_turns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT,
+      turn_number INTEGER,
+      user_uuid TEXT,
+      user_timestamp TEXT,
+      user_text TEXT,
+      assistant_count INTEGER DEFAULT 0,
+      tool_call_count INTEGER DEFAULT 0,
+      tool_error_count INTEGER DEFAULT 0,
+      has_thinking INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      context_tokens INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS session_metrics (
+      session_id TEXT PRIMARY KEY,
+      metrics_version INTEGER DEFAULT 1,
+      jsonl_mtime REAL,
+      turn_count INTEGER DEFAULT 0,
+      first_attempt_success_rate REAL DEFAULT 0,
+      interruption_rate REAL DEFAULT 0,
+      correction_rate REAL DEFAULT 0,
+      tool_error_rate REAL DEFAULT 0,
+      token_efficiency REAL DEFAULT 0,
+      prompt_specificity REAL DEFAULT 0,
+      error_loop_count INTEGER DEFAULT 0,
+      thinking_effectiveness REAL DEFAULT 0,
+      momentum TEXT DEFAULT 'stable',
+      overall_score REAL DEFAULT 0,
+      computed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS turn_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT,
+      turn_number INTEGER,
+      event_type TEXT,
+      matched_rule TEXT,
+      tokens_wasted INTEGER DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id);
+    CREATE INDEX IF NOT EXISTS idx_turn_events_session ON turn_events(session_id);
   `);
 }
