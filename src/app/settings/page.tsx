@@ -24,7 +24,15 @@ interface SettingSection {
   fields: SettingField[];
 }
 
-const SETTINGS_SCHEMA: SettingSection[] = [
+interface SettingGroup {
+  label: string;
+  sections: SettingSection[];
+}
+
+const SETTINGS_GROUPS: SettingGroup[] = [
+  {
+    label: "Common",
+    sections: [
   {
     title: "Model & Behavior",
     icon: Cpu,
@@ -135,6 +143,11 @@ const SETTINGS_SCHEMA: SettingSection[] = [
       },
     ],
   },
+    ],
+  },
+  {
+    label: "Advanced",
+    sections: [
   {
     title: "Git & Attribution",
     icon: GitBranch,
@@ -268,7 +281,10 @@ const SETTINGS_SCHEMA: SettingSection[] = [
       },
     ],
   },
+    ],
+  },
 ];
+
 
 /* ------------------------------------------------------------------ */
 /*  Helpers for nested dot-path access                                */
@@ -362,7 +378,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-8 max-w-3xl mx-auto relative z-10">
+    <div className="px-6 py-8 max-w-4xl mx-auto relative z-10">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
@@ -397,42 +413,80 @@ export default function SettingsPage() {
       )}
 
       {showRawJson ? (
-        <textarea
-          value={rawJson}
-          onChange={(e) => setRawJson(e.target.value)}
-          className="w-full bg-zinc-900/50 border border-zinc-800/40 rounded-xl p-6 text-sm font-mono min-h-[500px] focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 resize-y transition-all"
-          spellCheck={false}
-        />
+        <div>
+          <div className="bg-zinc-800/40 border border-zinc-700/40 rounded-lg px-4 py-3 mb-4 text-[12px] text-zinc-400">
+            Edit the raw JSON below. Changes are validated on save. Use Form View for guided editing.
+          </div>
+          <textarea
+            value={rawJson}
+            onChange={(e) => setRawJson(e.target.value)}
+            className="w-full bg-zinc-900/50 border border-zinc-800/40 rounded-xl p-6 text-sm font-mono min-h-[500px] focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 resize-y transition-all"
+            spellCheck={false}
+          />
+        </div>
       ) : (
-        <div className="space-y-2">
-          {SETTINGS_SCHEMA.map((section) => {
-            const isCollapsed = collapsed[section.title];
-            const SectionIcon = section.icon;
-            return (
-              <div key={section.title} className="bg-zinc-900/50 border border-zinc-800/40 rounded-xl overflow-hidden">
-                <button
-                  onClick={() => toggleSection(section.title)}
-                  className="w-full flex items-center gap-3 px-5 py-4 text-[13px] font-semibold text-zinc-300 hover:bg-zinc-800/30 transition-colors"
-                >
-                  <SectionIcon size={15} className="text-zinc-500" />
-                  <span className="flex-1 text-left">{section.title}</span>
-                  {isCollapsed ? <ChevronRight size={14} className="text-zinc-600" /> : <ChevronDown size={14} className="text-zinc-600" />}
-                </button>
-                {!isCollapsed && (
-                  <div className="px-5 pb-5 space-y-5 border-t border-zinc-800/40 pt-5">
-                    {section.fields.map((field) => (
-                      <FieldRow
-                        key={field.key}
-                        field={field}
-                        value={getNestedValue(settings, field.key)}
-                        onChange={(val) => updateField(field.key, val)}
-                      />
-                    ))}
-                  </div>
-                )}
+        <div className="flex gap-6">
+          {/* Sticky section nav */}
+          <nav className="hidden lg:block w-40 shrink-0">
+            <div className="sticky top-4 space-y-1">
+              {SETTINGS_GROUPS.map((group) => (
+                <div key={group.label}>
+                  <p className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider px-2 pt-3 pb-1">{group.label}</p>
+                  {group.sections.map((section) => (
+                    <button
+                      key={section.title}
+                      onClick={() => {
+                        const el = document.getElementById(`settings-${section.title.replace(/\s+/g, "-").toLowerCase()}`);
+                        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                      className="block w-full text-left px-2 py-1.5 text-[12px] text-zinc-500 hover:text-zinc-300 rounded transition-colors truncate"
+                    >
+                      {section.title}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </nav>
+
+          {/* Sections */}
+          <div className="flex-1 space-y-6">
+            {SETTINGS_GROUPS.map((group) => (
+              <div key={group.label}>
+                <p className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider mb-2">{group.label}</p>
+                <div className="space-y-2">
+                  {group.sections.map((section) => {
+                    const isCollapsed = collapsed[section.title];
+                    const SectionIcon = section.icon;
+                    return (
+                      <div key={section.title} id={`settings-${section.title.replace(/\s+/g, "-").toLowerCase()}`} className="bg-zinc-900/50 border border-zinc-800/40 rounded-xl overflow-hidden scroll-mt-4">
+                        <button
+                          onClick={() => toggleSection(section.title)}
+                          className="w-full flex items-center gap-3 px-5 py-4 text-[13px] font-semibold text-zinc-300 hover:bg-zinc-800/30 transition-colors"
+                        >
+                          <SectionIcon size={15} className="text-zinc-500" />
+                          <span className="flex-1 text-left">{section.title}</span>
+                          {isCollapsed ? <ChevronRight size={14} className="text-zinc-600" /> : <ChevronDown size={14} className="text-zinc-600" />}
+                        </button>
+                        {!isCollapsed && (
+                          <div className="px-5 pb-5 space-y-5 border-t border-zinc-800/40 pt-5">
+                            {section.fields.map((field) => (
+                              <FieldRow
+                                key={field.key}
+                                field={field}
+                                value={getNestedValue(settings, field.key)}
+                                onChange={(val) => updateField(field.key, val)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
       )}
     </div>

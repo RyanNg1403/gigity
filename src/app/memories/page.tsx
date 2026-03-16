@@ -110,7 +110,7 @@ export default function MemoriesPage() {
           <option value="">Select a project...</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name} — {p.originalPath}
+              {p.name}
             </option>
           ))}
         </select>

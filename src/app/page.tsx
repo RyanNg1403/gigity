@@ -289,15 +289,13 @@ export default function Dashboard() {
                     );
                     return (
                       <tr key={p.name} className="border-b border-zinc-800/30 hover:bg-zinc-800/20 transition-colors">
-                        <td className="py-3 text-zinc-200 font-medium" title={p.original_path}>
-                          {p.original_path.split("/").filter(Boolean).slice(-2).join("/")}
-                        </td>
-                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.session_count}</td>
-                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.total_messages.toLocaleString()}</td>
-                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{p.total_tool_calls.toLocaleString()}</td>
-                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNumber(p.total_input_tokens || 0)}</td>
-                        <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNumber(p.total_output_tokens || 0)}</td>
-                        <td className="py-3 text-right text-green-400/80 font-mono text-xs">{formatCost(projectCost)}</td>
+                        <td className="py-3 text-zinc-200 font-medium" title={p.original_path}>{p.name}</td>
+                        <td className="py-3 text-right text-zinc-400 font-mono text-[13px]">{p.session_count}</td>
+                        <td className="py-3 text-right text-zinc-400 font-mono text-[13px]">{p.total_messages.toLocaleString()}</td>
+                        <td className="py-3 text-right text-zinc-400 font-mono text-[13px]">{p.total_tool_calls.toLocaleString()}</td>
+                        <td className="py-3 text-right text-zinc-400 font-mono text-[13px]">{formatNumber(p.total_input_tokens || 0)}</td>
+                        <td className="py-3 text-right text-zinc-400 font-mono text-[13px]">{formatNumber(p.total_output_tokens || 0)}</td>
+                        <td className="py-3 text-right text-green-400 font-mono text-[13px]">{formatCost(projectCost)}</td>
                       </tr>
                     );
                   })}

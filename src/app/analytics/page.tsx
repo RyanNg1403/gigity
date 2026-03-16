@@ -244,10 +244,10 @@ export default function AnalyticsPage() {
               {data.modelUsage.map((m) => (
                 <tr key={m.model_used} className="border-b border-zinc-800/30 hover:bg-zinc-800/20 transition-colors">
                   <td className="py-3 text-zinc-200 font-medium">{shortModel(m.model_used)}</td>
-                  <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNum(m.input_tokens || 0)}</td>
-                  <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNum(m.output_tokens || 0)}</td>
-                  <td className="py-3 text-right text-zinc-500 font-mono text-xs">{formatNum(m.cache_read_tokens || 0)}</td>
-                  <td className="py-3 text-right text-green-400/80 font-mono text-xs">{formatCost(m.estimated_cost || 0)}</td>
+                  <td className="py-3 text-right text-zinc-400 font-mono text-[13px]">{formatNum(m.input_tokens || 0)}</td>
+                  <td className="py-3 text-right text-zinc-400 font-mono text-[13px]">{formatNum(m.output_tokens || 0)}</td>
+                  <td className="py-3 text-right text-zinc-400 font-mono text-[13px]">{formatNum(m.cache_read_tokens || 0)}</td>
+                  <td className="py-3 text-right text-green-400 font-mono text-[13px]">{formatCost(m.estimated_cost || 0)}</td>
                 </tr>
               ))}
             </tbody>
