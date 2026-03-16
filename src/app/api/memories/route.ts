@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { claudePaths } from "@/lib/claude-paths";
+import { getDb } from "@/lib/db";
 
 interface MemoryFile {
   filename: string;
@@ -38,19 +39,23 @@ export async function GET(req: NextRequest) {
   const projectId = url.searchParams.get("project");
 
   if (!projectId) {
-    // Return list of projects that have memories
+    // Return list of projects that have memories, using DB for correct names
     const projectsDir = claudePaths.projects;
     if (!fs.existsSync(projectsDir)) return NextResponse.json({ projects: [] });
 
+    const db = getDb();
     const dirs = fs.readdirSync(projectsDir);
     const withMemories = dirs.filter((d) => {
       const memDir = path.join(projectsDir, d, "memory");
       return fs.existsSync(memDir) && fs.readdirSync(memDir).length > 0;
-    }).map((d) => ({
-      id: d,
-      name: claudePaths.shortName(d),
-      originalPath: claudePaths.decodeFolderName(d),
-    }));
+    }).map((d) => {
+      const row = db.prepare("SELECT name, original_path FROM projects WHERE id = ?").get(d) as { name: string; original_path: string } | undefined;
+      return {
+        id: d,
+        name: row?.name || d,
+        originalPath: row?.original_path || d,
+      };
+    });
 
     return NextResponse.json({ projects: withMemories });
   }
