@@ -25,17 +25,17 @@ Search and filter sessions by project, with metadata badges for model, git branc
 ![Sessions](public/screenshots/sessions.png)
 
 ### Session Replay
-Full conversation replay with markdown rendering, collapsible thinking blocks, tool call details linked to their results, and a timeline view. Toggle between "All messages" and "Text only" modes. Paginated for large sessions. Includes estimated session cost, git activity during the session, and a context window pressure chart.
+Full conversation replay with markdown rendering, collapsible thinking blocks, tool call details linked to their results, and a timeline view. In-session search filters to matching messages with keyword highlighting. Text-only mode by default. Session insights (prompt effectiveness, context pressure, git activity) below the transcript.
 
 ![Session Detail](public/screenshots/session-detail.png)
 
 ### Analytics
-Daily token usage trends, daily cost trend chart, sessions by hour, tool distribution, cost-by-model breakdown, and git branch activity.
+Daily token usage trends, daily cost trend, sessions by hour, tool distribution, cost-by-model breakdown, git branch activity, prompt effectiveness score distribution, and daily effectiveness trend.
 
 ![Analytics](public/screenshots/analytics.png)
 
 ### Settings
-Form-based editor for `~/.claude/settings.json` with dropdowns, toggles, and text inputs for all documented Claude Code settings. Toggle to raw JSON when needed.
+Form-based editor for `~/.claude/settings.json` with Common/Advanced grouping, sticky section navigation, dropdowns, toggles, and text inputs. Raw JSON mode with guidance banner.
 
 ![Settings](public/screenshots/settings.png)
 
@@ -45,16 +45,19 @@ Form-based editor for `~/.claude/settings.json` with dropdowns, toggles, and tex
 |---|---|
 | **Session Browser** | Search (FTS5-backed), filter by project, paginated session list with per-session cost |
 | **Session Replay** | Full conversation with markdown, thinking blocks, tool calls, tool results linked by ID |
-| **Text-Only Mode** | Strip tool calls to see just the human/Claude conversation |
+| **In-Session Search** | Filter messages by keyword with highlighting, fixed search bar, auto-scroll to matches |
+| **Prompt Effectiveness** | Per-session scoring (0-100) measuring success rate, corrections, interruptions, error loops |
+| **Text-Only Mode** | Strip tool calls to see just the human/Claude conversation (default view) |
 | **Cost Tracker** | Estimated costs per session, project, model, and day using official Anthropic pricing |
 | **Git-Diff Mapping** | Collapsible git activity section in session detail showing commits made during the session |
 | **Context Pressure** | Area chart visualizing context window usage per turn with compression event markers |
-| **Usage Analytics** | Daily tokens, daily cost trend, peak hours, tool distribution, cost-by-model breakdown |
+| **Usage Analytics** | Daily tokens, daily cost trend, peak hours, tool distribution, cost-by-model breakdown, effectiveness trend |
 | **Memory Manager** | Browse, edit, and delete project memories with atomic file writes |
-| **Settings Editor** | Form UI for all documented Claude Code settings with raw JSON fallback |
-| **Global Sync** | Sync button in the sidebar, accessible from any page with auto-refresh |
+| **Settings Editor** | Form UI with Common/Advanced grouping, sticky section nav, raw JSON fallback |
+| **Auto-Sync** | 10-second polling with visibility-aware pause, plus manual sync button |
 | **Incremental Sync** | SQLite indexing with mtime-based incremental updates (~1s for 100 sessions) |
-| **ggt CLI** | Query session history from the terminal — search messages, list sessions, analyze costs, run raw SQL |
+| **Session Export/Import** | Transfer sessions between machines with full path rewriting and handoff messages |
+| **ggt CLI** | Query session history from the terminal — search messages, list sessions, export/import, run raw SQL |
 
 ## Quick Start
 
@@ -75,18 +78,20 @@ Open [http://localhost:3000](http://localhost:3000) and click **Sync Data** in t
 pnpm cli:build && pnpm cli:link
 ```
 
-Query your session data from the terminal:
+Query and manage session data from the terminal:
 
 ```bash
 ggt projects list                                    # List all projects
 ggt sessions list --project=my-app --limit=10        # List sessions with filters
 ggt sessions show f81f                               # Session details (prefix match)
+ggt sessions export abc123 -o handoff.tar.gz         # Export session for handoff
+ggt sessions import handoff.tar.gz --project-dir .   # Import on another machine
 ggt messages list f81f --type=user --full             # Read messages from a session
 ggt messages search "authentication" --project=my-app # Search across sessions
 ggt sql "SELECT COUNT(*) FROM sessions"               # Raw SQL escape hatch
 ```
 
-All commands support `--json` for piping. See `ggt --help` for full usage. A Claude Code skill is included at `skills/ggt/` for AI-assisted session querying.
+All commands support `--json` for piping. See [docs/ggt-cli.md](docs/ggt-cli.md) for full reference and [docs/session-export-import.md](docs/session-export-import.md) for the export/import guide.
 
 ## Tech Stack
 
