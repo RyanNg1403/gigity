@@ -756,10 +756,6 @@ export default class SessionsImport extends Command {
       `  Folder rewrite: ${oldProjectFolder} → ${newProjectFolder}`
     );
 
-    if (flags["dry-run"]) {
-      this.log("\n[dry-run] Would create:");
-    }
-
     // Target directories
     const targetProjectDir = path.join(
       CLAUDE_DIR,
@@ -767,6 +763,24 @@ export default class SessionsImport extends Command {
       newProjectFolder
     );
     const targetSessionSubdir = path.join(targetProjectDir, sessionId);
+
+    // Check if session already exists at the destination
+    const destJsonlCheck = path.join(
+      targetProjectDir,
+      `${sessionId}.jsonl`
+    );
+    if (!flags["dry-run"] && fs.existsSync(destJsonlCheck)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      this.error(
+        `Session ${sessionId} already exists at ${targetProjectDir}.\n` +
+          `  To re-import, first remove the existing session:\n` +
+          `  rm ${destJsonlCheck}`
+      );
+    }
+
+    if (flags["dry-run"]) {
+      this.log("\n[dry-run] Would create:");
+    }
 
     // Install accepted environment artifacts BEFORE writing JSONL
     // (so the handoff message reflects what was actually installed)
