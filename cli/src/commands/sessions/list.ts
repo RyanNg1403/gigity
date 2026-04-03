@@ -70,7 +70,7 @@ export default class SessionsList extends Command {
     }
 
     for (const r of rows) {
-      const prompt = ((r.first_prompt as string) || "").slice(0, 80).replace(/\n/g, " ");
+      const prompt = ((r.first_prompt as string) || "").slice(0, 200).replace(/\n/g, " ");
       const created = ((r.created_at as string) || "").slice(0, 16);
       this.log(
         `${r.id}  ${created}  msgs=${r.message_count}  tools=${r.tool_call_count}  ${r.model_used || "?"}  ${r.project_name}`

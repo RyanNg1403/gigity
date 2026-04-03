@@ -7,6 +7,345 @@ import { getDb } from "../../lib/db.js";
 
 const CLAUDE_DIR = path.join(os.homedir(), ".claude");
 
+interface SessionRequirements {
+  mcpServers: string[];
+  skills: { name: string; path: string }[];
+  customAgents: string[];
+  subagentTypes: string[];
+  models: string[];
+  plugins: string[];
+  hasProjectHooks: boolean;
+}
+
+// Patterns that indicate sensitive values in env vars
+const SENSITIVE_PATTERNS =
+  /token|key|secret|password|auth|credential|apikey|api_key/i;
+
+/**
+ * Sanitize MCP server config by redacting env vars that look like credentials.
+ * Keeps the structure intact so recipients know what env vars to set.
+ */
+function sanitizeMcpConfig(
+  config: Record<string, unknown>
+): Record<string, unknown> {
+  const sanitized = { ...config };
+  if (
+    sanitized.env &&
+    typeof sanitized.env === "object" &&
+    !Array.isArray(sanitized.env)
+  ) {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(
+      sanitized.env as Record<string, string>
+    )) {
+      if (SENSITIVE_PATTERNS.test(k) || SENSITIVE_PATTERNS.test(String(v))) {
+        env[k] = "<REDACTED — set your own value>";
+      } else {
+        env[k] = v;
+      }
+    }
+    sanitized.env = env;
+  }
+  return sanitized;
+}
+
+/**
+ * Collect MCP server configs that were used in the session.
+ * Reads from .mcp.json (project-level) and ~/.claude/config.json (user-level).
+ */
+function collectMcpConfigs(
+  projectPath: string,
+  serverNames: string[]
+): Record<string, Record<string, unknown>> {
+  if (serverNames.length === 0) return {};
+
+  const configs: Record<string, Record<string, unknown>> = {};
+  const needed = new Set(serverNames);
+
+  // 1. Check project-level .mcp.json
+  const projectMcpPath = path.join(projectPath, ".mcp.json");
+  if (fs.existsSync(projectMcpPath)) {
+    try {
+      const mcpJson = JSON.parse(fs.readFileSync(projectMcpPath, "utf-8"));
+      const servers = mcpJson.mcpServers || {};
+      for (const [name, config] of Object.entries(servers)) {
+        if (needed.has(name)) {
+          configs[name] = sanitizeMcpConfig(
+            config as Record<string, unknown>
+          );
+          needed.delete(name);
+        }
+      }
+    } catch {
+      // skip
+    }
+  }
+
+  // 2. Check user-level ~/.claude/config.json
+  if (needed.size > 0) {
+    const userConfigPath = path.join(CLAUDE_DIR, "config.json");
+    if (fs.existsSync(userConfigPath)) {
+      try {
+        const userConfig = JSON.parse(
+          fs.readFileSync(userConfigPath, "utf-8")
+        );
+        const servers = userConfig.mcpServers || {};
+        for (const [name, config] of Object.entries(servers)) {
+          if (needed.has(name)) {
+            configs[name] = sanitizeMcpConfig(
+              config as Record<string, unknown>
+            );
+            needed.delete(name);
+          }
+        }
+      } catch {
+        // skip
+      }
+    }
+  }
+
+  return configs;
+}
+
+/**
+ * Collect skill files that were invoked in the session.
+ * Reads from .claude/skills/ (project) and ~/.claude/skills/ (user).
+ */
+function collectSkillFiles(
+  projectPath: string,
+  skillNames: string[]
+): { name: string; filename: string; content: string }[] {
+  if (skillNames.length === 0) return [];
+
+  const skills: { name: string; filename: string; content: string }[] = [];
+  const found = new Set<string>();
+
+  const skillDirs = [
+    path.join(projectPath, ".claude", "skills"),
+    path.join(CLAUDE_DIR, "skills"),
+  ];
+
+  for (const dir of skillDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith(".md")) continue;
+      try {
+        const content = fs.readFileSync(path.join(dir, f), "utf-8");
+        // Check if this file matches any of the skill names
+        // Match by filename (without extension) or by frontmatter name field
+        const basename = f.replace(/\.md$/, "");
+        const nameMatch = content.match(/^name:\s*(.+)$/m);
+        const skillName = nameMatch?.[1]?.trim() || basename;
+
+        for (const needed of skillNames) {
+          if (
+            !found.has(needed) &&
+            (basename === needed ||
+              skillName === needed ||
+              basename.includes(needed) ||
+              needed.includes(basename))
+          ) {
+            skills.push({ name: skillName, filename: f, content });
+            found.add(needed);
+          }
+        }
+      } catch {
+        // skip
+      }
+    }
+  }
+
+  return skills;
+}
+
+/**
+ * Collect custom agent definition files used in the session.
+ * Reads from .claude/agents/ (project) and ~/.claude/agents/ (user).
+ */
+function collectAgentFiles(
+  projectPath: string,
+  agentNames: string[]
+): { name: string; filename: string; content: string }[] {
+  if (agentNames.length === 0) return [];
+
+  const agents: { name: string; filename: string; content: string }[] = [];
+  const found = new Set<string>();
+
+  const agentDirs = [
+    path.join(projectPath, ".claude", "agents"),
+    path.join(CLAUDE_DIR, "agents"),
+  ];
+
+  for (const dir of agentDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith(".md")) continue;
+      try {
+        const content = fs.readFileSync(path.join(dir, f), "utf-8");
+        const basename = f.replace(/\.md$/, "");
+        const nameMatch = content.match(/^name:\s*(.+)$/m);
+        const agentName = nameMatch?.[1]?.trim() || basename;
+
+        for (const needed of agentNames) {
+          if (
+            !found.has(needed) &&
+            (basename === needed ||
+              agentName === needed ||
+              basename.includes(needed) ||
+              needed.includes(basename))
+          ) {
+            agents.push({ name: agentName, filename: f, content });
+            found.add(needed);
+          }
+        }
+      } catch {
+        // skip
+      }
+    }
+  }
+
+  return agents;
+}
+
+/**
+ * Scan a session JSONL + subagent meta files to detect environment requirements.
+ * Detects: MCP servers, invoked skills, custom agent definitions, subagent types, models.
+ */
+function detectRequirements(
+  jsonlPath: string,
+  projectPath: string,
+  subagentsDir: string | null
+): SessionRequirements {
+  const mcpServers = new Set<string>();
+  const skills = new Map<string, string>(); // name → path
+  const customAgents = new Set<string>();
+  const subagentTypes = new Set<string>();
+  const models = new Set<string>();
+  const plugins = new Set<string>();
+
+  // Scan JSONL line by line (avoid loading multi-MB files into a single JSON parse)
+  const content = fs.readFileSync(jsonlPath, "utf-8");
+  for (const line of content.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const record = JSON.parse(line);
+
+      // Detect MCP servers from tool_use blocks: name="mcp__<server>__<tool>"
+      if (record.type === "assistant" && record.message?.content) {
+        for (const block of record.message.content) {
+          if (
+            block.type === "tool_use" &&
+            typeof block.name === "string"
+          ) {
+            if (block.name.startsWith("mcp__")) {
+              const parts = block.name.split("__");
+              if (parts.length >= 3) {
+                mcpServers.add(parts[1]);
+              }
+            }
+            // Detect Agent tool with subagent_type or custom name
+            if (block.name === "Agent" && block.input) {
+              if (block.input.subagent_type) {
+                subagentTypes.add(block.input.subagent_type);
+              }
+              if (block.input.name) {
+                customAgents.add(block.input.name);
+              }
+            }
+            // Detect Skill tool invocations: Skill(plugin:name) or Skill(name)
+            if (block.name === "Skill" && block.input?.skill) {
+              const skillRef = block.input.skill as string;
+              if (skillRef.includes(":")) {
+                // Plugin-namespaced skill: "plugin-name:skill-name"
+                plugins.add(skillRef.split(":")[0]);
+              }
+            }
+          }
+        }
+        // Detect model
+        if (record.message?.model) {
+          models.add(record.message.model);
+        }
+      }
+
+      // Detect invoked skills from attachment records
+      if (
+        record.type === "attachment" &&
+        record.attachment?.type === "invoked_skills"
+      ) {
+        for (const skill of record.attachment.skills || []) {
+          if (skill.name) {
+            skills.set(skill.name, skill.path || "");
+            // Check if skill name is plugin-namespaced
+            if (skill.name.includes(":")) {
+              plugins.add(skill.name.split(":")[0]);
+            }
+          }
+        }
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  // Detect project-level hooks
+  let hasProjectHooks = false;
+  const projectSettingsPath = path.join(projectPath, ".claude", "settings.json");
+  if (fs.existsSync(projectSettingsPath)) {
+    try {
+      const settings = JSON.parse(fs.readFileSync(projectSettingsPath, "utf-8"));
+      if (settings.hooks && Object.keys(settings.hooks).length > 0) {
+        hasProjectHooks = true;
+      }
+    } catch {
+      // skip
+    }
+  }
+
+  // Also read subagent .meta.json files for agent types
+  if (subagentsDir && fs.existsSync(subagentsDir)) {
+    for (const f of fs.readdirSync(subagentsDir)) {
+      if (f.endsWith(".meta.json")) {
+        try {
+          const meta = JSON.parse(
+            fs.readFileSync(path.join(subagentsDir, f), "utf-8")
+          );
+          if (meta.agentType) {
+            subagentTypes.add(meta.agentType);
+          }
+        } catch {
+          // skip
+        }
+      }
+    }
+  }
+
+  // Filter out built-in subagent types (not something users need to install)
+  const builtInTypes = new Set([
+    "general-purpose",
+    "Explore",
+    "Plan",
+    "worker",
+    "claude-code-guide",
+    "statusline-setup",
+  ]);
+  const customSubagentTypes = [...subagentTypes].filter(
+    (t) => !builtInTypes.has(t)
+  );
+
+  return {
+    mcpServers: [...mcpServers].sort(),
+    skills: [...skills.entries()]
+      .map(([name, p]) => ({ name, path: p }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    customAgents: [...customAgents].sort(),
+    subagentTypes: customSubagentTypes.sort(),
+    models: [...models].sort(),
+    plugins: [...plugins].sort(),
+    hasProjectHooks,
+  };
+}
+
 export default class SessionsExport extends Command {
   static override description =
     "Export a session bundle for another machine. Packages the session JSONL, subagents, tool results, file history, project memories, and sessions-index into a portable .tar.gz archive.";
@@ -99,6 +438,128 @@ export default class SessionsExport extends Command {
     fs.cpSync(jsonlPath, path.join(bundleDir, `${sessionId}.jsonl`));
     const jsonlSize = fs.statSync(jsonlPath).size;
     this.log(`  JSONL: ${(jsonlSize / 1024).toFixed(0)} KB`);
+
+    // Detect environment requirements from JSONL content
+    const subagentsDirForScan = fs.existsSync(
+      path.join(projectDir, sessionId, "subagents")
+    )
+      ? path.join(projectDir, sessionId, "subagents")
+      : null;
+    const requirements = detectRequirements(jsonlPath, projectPath, subagentsDirForScan);
+
+    // Collect environment artifacts to bundle
+    const mcpConfigs = collectMcpConfigs(projectPath, requirements.mcpServers);
+    const skillFiles = collectSkillFiles(
+      projectPath,
+      requirements.skills.map((s) => s.name)
+    );
+    const agentFiles = collectAgentFiles(projectPath, requirements.customAgents);
+
+    // Bundle environment artifacts
+    const envDir = path.join(bundleDir, "environment");
+    let envBundled = false;
+
+    if (Object.keys(mcpConfigs).length > 0) {
+      fs.mkdirSync(path.join(envDir, "mcp"), { recursive: true });
+      fs.writeFileSync(
+        path.join(envDir, "mcp", "servers.json"),
+        JSON.stringify({ mcpServers: mcpConfigs }, null, 2)
+      );
+      envBundled = true;
+    }
+
+    if (skillFiles.length > 0) {
+      fs.mkdirSync(path.join(envDir, "skills"), { recursive: true });
+      for (const skill of skillFiles) {
+        fs.writeFileSync(path.join(envDir, "skills", skill.filename), skill.content);
+      }
+      envBundled = true;
+    }
+
+    if (agentFiles.length > 0) {
+      fs.mkdirSync(path.join(envDir, "agents"), { recursive: true });
+      for (const agent of agentFiles) {
+        fs.writeFileSync(path.join(envDir, "agents", agent.filename), agent.content);
+      }
+      envBundled = true;
+    }
+
+    // Bundle project-level hooks from .claude/settings.json
+    if (requirements.hasProjectHooks) {
+      const projectSettingsPath = path.join(projectPath, ".claude", "settings.json");
+      try {
+        const settings = JSON.parse(fs.readFileSync(projectSettingsPath, "utf-8"));
+        if (settings.hooks) {
+          fs.mkdirSync(path.join(envDir, "hooks"), { recursive: true });
+          fs.writeFileSync(
+            path.join(envDir, "hooks", "hooks.json"),
+            JSON.stringify({ hooks: settings.hooks }, null, 2)
+          );
+          envBundled = true;
+        }
+      } catch {
+        // skip
+      }
+    }
+
+    // Update manifest with requirements
+    const fullManifest = {
+      ...manifest,
+      requirements,
+      bundledEnvironment: {
+        mcpServers: Object.keys(mcpConfigs),
+        skills: skillFiles.map((s) => s.name),
+        agents: agentFiles.map((a) => a.name),
+        hooks: requirements.hasProjectHooks,
+      },
+    };
+    fs.writeFileSync(
+      path.join(bundleDir, "manifest.json"),
+      JSON.stringify(fullManifest, null, 2)
+    );
+
+    // Log detected requirements and bundled artifacts
+    if (requirements.mcpServers.length > 0) {
+      const bundled = Object.keys(mcpConfigs);
+      const missing = requirements.mcpServers.filter(
+        (s) => !bundled.includes(s)
+      );
+      this.log(
+        `  MCP servers: ${requirements.mcpServers.join(", ")}${bundled.length > 0 ? ` (${bundled.length} config${bundled.length > 1 ? "s" : ""} bundled, credentials redacted)` : ""}`
+      );
+      if (missing.length > 0) {
+        this.log(`    Not found locally: ${missing.join(", ")}`);
+      }
+    }
+    if (requirements.skills.length > 0) {
+      this.log(
+        `  Skills: ${requirements.skills.map((s) => s.name).join(", ")}${skillFiles.length > 0 ? ` (${skillFiles.length} bundled)` : ""}`
+      );
+    }
+    if (requirements.customAgents.length > 0) {
+      this.log(
+        `  Custom agents: ${requirements.customAgents.join(", ")}${agentFiles.length > 0 ? ` (${agentFiles.length} bundled)` : ""}`
+      );
+    }
+    if (requirements.subagentTypes.length > 0) {
+      this.log(
+        `  Custom subagent types: ${requirements.subagentTypes.join(", ")}`
+      );
+    }
+    if (requirements.hasProjectHooks) {
+      this.log(`  Project hooks: bundled from .claude/settings.json`);
+    }
+    if (requirements.plugins.length > 0) {
+      this.log(
+        `  Plugins used: ${requirements.plugins.join(", ")} (recipient must install separately)`
+      );
+    }
+    if (requirements.models.length > 0) {
+      this.log(`  Models used: ${requirements.models.join(", ")}`);
+    }
+    if (envBundled) {
+      this.log(`  Environment artifacts bundled for recipient setup`);
+    }
 
     // 2. Subagents + tool results (session subdirectory)
     const sessionSubdir = path.join(projectDir, sessionId);

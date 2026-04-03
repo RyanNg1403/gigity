@@ -59,7 +59,8 @@ The bundle includes:
 - Project memories (MEMORY.md + files)
 - Sessions index entry
 - Task files (if any)
-- Manifest with export metadata
+- Environment artifacts (MCP configs with credentials redacted, skill files, agent definitions)
+- Manifest with export metadata, detected requirements, and bundled environment list
 
 | Flag | Description |
 |------|-------------|
@@ -75,14 +76,16 @@ Import a session bundle exported from another machine.
 ggt sessions import bundle.tar.gz --project-dir /Users/Team/workspace/gigity
 ggt sessions import bundle.tar.gz --project-dir . --note "Focus on the auth refactor"
 ggt sessions import bundle.tar.gz --project-dir /path --dry-run
+ggt sessions import bundle.tar.gz --project-dir . --yes  # Accept all env artifacts
 ```
 
 On import:
-1. All absolute paths in JSONL, subagent transcripts, tool results, and index are rewritten from the source machine's paths to the target machine's paths
-2. The project folder under `~/.claude/projects/` is re-encoded for the target path
-3. A synthetic handoff message is appended to the JSONL, telling Claude the environment changed
-4. Memories are merged (existing files are not overwritten)
-5. Sessions index is merged (no duplicate entries)
+1. **Interactive environment setup**: Prompts to install bundled MCP server configs, skills, and agent definitions (use `--yes` to auto-accept)
+2. All absolute paths in JSONL, subagent transcripts, tool results, and index are rewritten from the source machine's paths to the target machine's paths
+3. The project folder under `~/.claude/projects/` is re-encoded for the target path
+4. A synthetic handoff message is appended to the JSONL, reflecting what was installed and what was declined
+5. Memories are merged (existing files are not overwritten)
+6. Sessions index is merged (no duplicate entries)
 
 After import, resume with:
 ```bash
@@ -94,6 +97,7 @@ cd /path/to/project && claude --resume <session-id>
 | `--project-dir` | **(required)** Absolute path to the project on this machine |
 | `--note` | Optional note included in the handoff message |
 | `--dry-run` | Show what would be done without writing files |
+| `-y, --yes` | Accept all bundled environment artifacts without prompting |
 
 ### `ggt messages list <session-id>`
 
