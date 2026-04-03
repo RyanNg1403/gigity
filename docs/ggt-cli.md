@@ -6,6 +6,12 @@
 
 ```bash
 cd gigity
+pnpm install && pnpm build
+```
+
+This builds the CLI and globally links the `ggt` command. You can also build and link separately:
+
+```bash
 pnpm cli:build && pnpm cli:link
 ```
 

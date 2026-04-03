@@ -3,10 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "install": "cd cli && pnpm install",
+    "build": "cd cli && pnpm install && pnpm build && npm link",
     "lint": "eslint",
+    "web:dev": "next dev",
+    "web:build": "next build",
+    "web:start": "next start",
     "cli:build": "cd cli && pnpm install && pnpm build",
     "cli:link": "cd cli && npm link"
   },
