@@ -635,8 +635,8 @@ export default class SessionsExport extends Command {
     }
 
     // Create tar.gz
-    const outputPath =
-      flags.output || `session-${sessionId.slice(0, 8)}.tar.gz`;
+    let outputPath = flags.output || `session-${sessionId.slice(0, 8)}.tar.gz`;
+    if (!outputPath.endsWith(".tar.gz")) outputPath += ".tar.gz";
     const absOutput = path.resolve(outputPath);
 
     execSync(`tar -czf "${absOutput}" -C "${stagingDir}" session-bundle`, {
