@@ -103,25 +103,37 @@ export default class MessagesSearch extends Command {
           const text = extractReadableText(record);
           const textLower = text.toLowerCase();
 
-          // Simple BM25-inspired scoring: count term matches, weight by rarity
+          // Score: exact phrase match >> individual term matches
           let score = 0;
-          for (const term of queryTerms) {
-            const count = textLower.split(term).length - 1;
-            if (count > 0) {
-              score += Math.log(1 + count) * (1 / Math.max(term.length, 1));
+          let matchIdx = -1;
+
+          // Exact phrase match gets a massive boost
+          const phraseIdx = textLower.indexOf(queryLower);
+          if (phraseIdx >= 0) {
+            score = 1000 + queryLower.length;
+            matchIdx = phraseIdx;
+          } else {
+            // Fall back to individual term matching — longer terms score higher
+            let matched = 0;
+            for (const term of queryTerms) {
+              if (term.length < 3) continue; // skip trivial words
+              const idx = textLower.indexOf(term);
+              if (idx >= 0) {
+                score += term.length; // longer terms = more specific = higher score
+                matched++;
+                if (matchIdx < 0) matchIdx = idx;
+              }
+            }
+            // Require at least half the non-trivial terms to match
+            const meaningfulTerms = queryTerms.filter((t) => t.length >= 3).length;
+            if (matched < Math.max(1, Math.ceil(meaningfulTerms * 0.5))) {
+              score = 0;
             }
           }
 
-          if (score > 0) {
-            // Extract snippet around first match
-            const firstTermIdx = Math.min(
-              ...queryTerms.map((t) => {
-                const i = textLower.indexOf(t);
-                return i >= 0 ? i : Infinity;
-              })
-            );
-            const snippetStart = Math.max(0, firstTermIdx - 80);
-            const snippetEnd = Math.min(text.length, firstTermIdx + 200);
+          if (score > 0 && matchIdx >= 0) {
+            const snippetStart = Math.max(0, matchIdx - 40);
+            const snippetEnd = Math.min(text.length, matchIdx + 250);
             const snippet = (snippetStart > 0 ? "..." : "") +
               text.slice(snippetStart, snippetEnd).replace(/\n/g, " ") +
               (snippetEnd < text.length ? "..." : "");
