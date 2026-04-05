@@ -1,4 +1,5 @@
 import { Args, Command, Flags } from "@oclif/core";
+import path from "node:path";
 import { ensureSynced } from "../../lib/auto-sync.js";
 import { parseJsonl } from "../../lib/jsonl.js";
 
@@ -58,12 +59,15 @@ export default class MessagesSearch extends Command {
         WHERE s.id LIKE ?
       `).all(`${flags.session}%`) as typeof sessions;
     } else if (flags.project) {
+      const proj = flags.project === "." || flags.project === "./"
+        ? path.resolve(".")
+        : flags.project;
       sessions = db.prepare(`
         SELECT s.id, s.jsonl_path, s.first_prompt, p.original_path as project_path, p.name as project_name
         FROM sessions s JOIN projects p ON s.project_id = p.id
         WHERE p.original_path LIKE ? OR p.name LIKE ?
         ORDER BY s.created_at DESC
-      `).all(`%${flags.project}%`, `%${flags.project}%`) as typeof sessions;
+      `).all(`%${proj}%`, `%${proj}%`) as typeof sessions;
     } else {
       sessions = db.prepare(`
         SELECT s.id, s.jsonl_path, s.first_prompt, p.original_path as project_path, p.name as project_name
