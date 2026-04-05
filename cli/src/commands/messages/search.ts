@@ -1,6 +1,23 @@
 import { Args, Command, Flags } from "@oclif/core";
 import { ensureSynced } from "../../lib/auto-sync.js";
-import { parseJsonl, extractText } from "../../lib/jsonl.js";
+import { parseJsonl } from "../../lib/jsonl.js";
+
+/** Extract only human-readable text (no tool inputs, no file paths, no JSON blobs) */
+function extractReadableText(record: { type: string; message?: { content?: unknown } }): string {
+  const content = record.message?.content;
+  if (!content) return "";
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+
+  const parts: string[] = [];
+  for (const block of content) {
+    const b = block as Record<string, unknown>;
+    if (b.type === "text" && typeof b.text === "string") {
+      parts.push(b.text);
+    }
+  }
+  return parts.join(" ");
+}
 
 export default class MessagesSearch extends Command {
   static override description = "Search message content across sessions using keyword matching";
@@ -79,7 +96,7 @@ export default class MessagesSearch extends Command {
           if (flags.type && record.type !== flags.type) { msgIdx++; continue; }
           if (record.type === "system") { msgIdx++; continue; }
 
-          const text = extractText(record);
+          const text = extractReadableText(record);
           const textLower = text.toLowerCase();
 
           // Simple BM25-inspired scoring: count term matches, weight by rarity
@@ -139,11 +156,14 @@ export default class MessagesSearch extends Command {
       return;
     }
 
-    this.log(`Found ${results.length} matches across ${totalSearched} sessions:\n`);
+    const uniqueSessions = new Set(results.map((r) => r.session_id));
+    this.log(`Found ${results.length} match${results.length > 1 ? "es" : ""} in ${uniqueSessions.size} session${uniqueSessions.size > 1 ? "s" : ""}:\n`);
+
     for (const r of results) {
       const label = r.type === "user" ? "YOU" : "CLAUDE";
-      this.log(`[${r.project}] ${r.session_id.slice(0, 8)}  msg#${r.msg_index}  ${r.timestamp}  ${label}`);
-      this.log(`  ${r.snippet}`);
+      const snippet = r.snippet.slice(0, 300);
+      this.log(`  ${r.project}/${r.session_id.slice(0, 8)}  ${r.timestamp}  ${label}`);
+      this.log(`  ${snippet}`);
       this.log("");
     }
   }

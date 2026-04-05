@@ -74,13 +74,20 @@ export default class SessionsList extends Command {
       return;
     }
 
+    if (rows.length === 0) {
+      this.log("No sessions found.");
+      return;
+    }
+
     for (const r of rows) {
       const prompt = ((r.first_prompt as string) || "").slice(0, 200).replace(/\n/g, " ");
       const created = ((r.created_at as string) || "").slice(0, 16);
+      const model = ((r.model_used as string) || "?").replace("claude-", "");
       this.log(
-        `${r.id}  ${created}  msgs=${r.message_count}  tools=${r.tool_call_count}  ${r.model_used || "?"}  ${r.project_name}`
+        `  ${(r.id as string).slice(0, 8)}  ${created}  ${r.project_name}  ${model}  msgs=${r.message_count}  tools=${r.tool_call_count}`
       );
-      if (prompt) this.log(`  "${prompt}"`);
+      if (prompt) this.log(`         ${prompt}`);
     }
+    this.log(`\n${rows.length} session${rows.length > 1 ? "s" : ""} shown. Use full ID or prefix for export/show.`);
   }
 }
