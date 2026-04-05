@@ -1,5 +1,5 @@
 import { Args, Command, Flags } from "@oclif/core";
-import { getDb } from "../../lib/db.js";
+import { ensureSynced } from "../../lib/auto-sync.js";
 import { estimateCost } from "../../lib/cost.js";
 
 export default class SessionsShow extends Command {
@@ -20,7 +20,7 @@ export default class SessionsShow extends Command {
 
   async run() {
     const { args, flags } = await this.parse(SessionsShow);
-    const db = getDb();
+    const db = await ensureSynced(60_000, (msg) => this.log(msg));
 
     // Support prefix matching
     const row = db.prepare(`

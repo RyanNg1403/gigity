@@ -1,5 +1,5 @@
 import { Args, Command, Flags } from "@oclif/core";
-import { getDb } from "../../lib/db.js";
+import { ensureSynced } from "../../lib/auto-sync.js";
 import { parseJsonl, extractText } from "../../lib/jsonl.js";
 
 export default class MessagesSearch extends Command {
@@ -27,7 +27,7 @@ export default class MessagesSearch extends Command {
 
   async run() {
     const { args, flags } = await this.parse(MessagesSearch);
-    const db = getDb();
+    const db = await ensureSynced(60_000, (msg) => this.log(msg));
     const queryLower = args.query.toLowerCase();
     const queryTerms = queryLower.split(/\s+/).filter(Boolean);
 

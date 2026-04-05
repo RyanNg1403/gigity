@@ -1,5 +1,5 @@
 import { Args, Command, Flags } from "@oclif/core";
-import { getDb } from "../../lib/db.js";
+import { ensureSynced } from "../../lib/auto-sync.js";
 import { parseJsonl, extractText } from "../../lib/jsonl.js";
 
 export default class MessagesList extends Command {
@@ -26,7 +26,7 @@ export default class MessagesList extends Command {
 
   async run() {
     const { args, flags } = await this.parse(MessagesList);
-    const db = getDb();
+    const db = await ensureSynced(60_000, (msg) => this.log(msg));
 
     const session = db.prepare(
       "SELECT jsonl_path FROM sessions WHERE id LIKE ? LIMIT 1"

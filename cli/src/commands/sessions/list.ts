@@ -1,5 +1,6 @@
 import { Command, Flags } from "@oclif/core";
-import { getDb } from "../../lib/db.js";
+import path from "node:path";
+import { ensureSynced } from "../../lib/auto-sync.js";
 
 export default class SessionsList extends Command {
   static override description = "List sessions with optional filters";
@@ -23,14 +24,18 @@ export default class SessionsList extends Command {
 
   async run() {
     const { flags } = await this.parse(SessionsList);
-    const db = getDb();
+    const db = await ensureSynced(60_000, (msg) => this.log(msg));
 
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
     if (flags.project) {
+      // Resolve "." or "./" to the current working directory
+      const proj = flags.project === "." || flags.project === "./"
+        ? path.resolve(".")
+        : flags.project;
       conditions.push("(p.original_path LIKE ? OR p.name LIKE ?)");
-      params.push(`%${flags.project}%`, `%${flags.project}%`);
+      params.push(`%${proj}%`, `%${proj}%`);
     }
     if (flags.model) {
       conditions.push("s.model_used LIKE ?");

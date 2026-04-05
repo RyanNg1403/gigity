@@ -1,5 +1,5 @@
 import { Args, Command, Flags } from "@oclif/core";
-import { getDb } from "../lib/db.js";
+import { ensureSynced } from "../lib/auto-sync.js";
 
 export default class Sql extends Command {
   static override description = "Run a raw SQL query against the Gigity database (read-only)";
@@ -21,7 +21,7 @@ export default class Sql extends Command {
 
   async run() {
     const { args, flags } = await this.parse(Sql);
-    const db = getDb();
+    const db = await ensureSynced(60_000, (msg) => this.log(msg));
 
     // Safety: only allow SELECT/EXPLAIN/PRAGMA
     const trimmed = args.query.trim().toUpperCase();

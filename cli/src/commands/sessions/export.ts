@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { execSync } from "node:child_process";
-import { getDb } from "../../lib/db.js";
+import { ensureSynced } from "../../lib/auto-sync.js";
 
 const CLAUDE_DIR = path.join(os.homedir(), ".claude");
 
@@ -380,7 +380,7 @@ export default class SessionsExport extends Command {
 
   async run() {
     const { args, flags } = await this.parse(SessionsExport);
-    const db = getDb();
+    const db = await ensureSynced(60_000, (msg) => this.log(msg));
 
     // Resolve session ID (prefix match)
     const session = db
