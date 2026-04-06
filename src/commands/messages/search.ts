@@ -45,7 +45,7 @@ export default class MessagesSearch extends Command {
 
   async run() {
     const { args, flags } = await this.parse(MessagesSearch);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
     const queryLower = args.query.toLowerCase();
     const queryTerms = queryLower.split(/\s+/).filter(Boolean);
 

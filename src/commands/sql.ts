@@ -21,7 +21,7 @@ export default class Sql extends Command {
 
   async run() {
     const { args, flags } = await this.parse(Sql);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
 
     // Safety: only allow SELECT/EXPLAIN/PRAGMA
     const trimmed = args.query.trim().toUpperCase();

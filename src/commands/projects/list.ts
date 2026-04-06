@@ -15,7 +15,7 @@ export default class ProjectsList extends Command {
 
   async run() {
     const { flags } = await this.parse(ProjectsList);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
 
     const rows = db.prepare(`
       SELECT id, name, original_path, session_count, last_activity

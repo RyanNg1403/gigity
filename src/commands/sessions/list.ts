@@ -24,7 +24,7 @@ export default class SessionsList extends Command {
 
   async run() {
     const { flags } = await this.parse(SessionsList);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
 
     const conditions: string[] = [];
     const params: (string | number)[] = [];

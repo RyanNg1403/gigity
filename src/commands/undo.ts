@@ -26,7 +26,7 @@ export default class Undo extends Command {
 
   async run() {
     const { args, flags } = await this.parse(Undo);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
     const dryRun = flags["dry-run"] ?? false;
 
     // Find session

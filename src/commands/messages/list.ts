@@ -26,7 +26,7 @@ export default class MessagesList extends Command {
 
   async run() {
     const { args, flags } = await this.parse(MessagesList);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
 
     const session = db.prepare(
       "SELECT jsonl_path FROM sessions WHERE id LIKE ? LIMIT 1"

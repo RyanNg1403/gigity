@@ -24,7 +24,7 @@ export default class Diff extends Command {
 
   async run() {
     const { args, flags } = await this.parse(Diff);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
 
     // Find session by prefix
     const session = db.prepare(`

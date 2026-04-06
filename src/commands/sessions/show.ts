@@ -20,7 +20,7 @@ export default class SessionsShow extends Command {
 
   async run() {
     const { args, flags } = await this.parse(SessionsShow);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
 
     // Support prefix matching
     const row = db.prepare(`

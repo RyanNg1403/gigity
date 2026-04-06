@@ -123,7 +123,7 @@ export default class Find extends Command {
 
   async run() {
     const { args, flags } = await this.parse(Find);
-    let db = await ensureSynced(60_000, (msg) => this.log(msg));
+    let db = await ensureSynced((msg) => this.log(msg));
 
     const projectFilter = flags.all
       ? null

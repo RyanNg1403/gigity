@@ -59,7 +59,7 @@ export default class Oneshot extends Command {
 
   async run() {
     const { args, flags } = await this.parse(Oneshot);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
 
     // 1. Resolve --from (default to cwd)
     const fromProject = flags.from

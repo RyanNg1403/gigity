@@ -380,7 +380,7 @@ export default class SessionsExport extends Command {
 
   async run() {
     const { args, flags } = await this.parse(SessionsExport);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
 
     // Resolve session ID (prefix match)
     const session = db

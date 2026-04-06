@@ -23,7 +23,7 @@ export default class Blame extends Command {
 
   async run() {
     const { args, flags } = await this.parse(Blame);
-    const db = await ensureSynced(60_000, (msg) => this.log(msg));
+    const db = await ensureSynced((msg) => this.log(msg));
 
     // Resolve the file path for matching
     const resolvedPath = path.isAbsolute(args.file)
