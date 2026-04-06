@@ -89,7 +89,7 @@ All path flags (`--project`, `--from`) resolve `.` to the current directory.
 
 The database auto-syncs when stale (>60s). Use `ggt sync` to force it.
 
-See [docs/ggt-cli.md](docs/ggt-cli.md) for the full CLI reference. There's also a [local web UI](docs/web-ui.md) for visual exploration (`pnpm web:dev`).
+See [docs/ggt-cli.md](docs/ggt-cli.md) for the full CLI reference.
 
 ## Privacy
 
