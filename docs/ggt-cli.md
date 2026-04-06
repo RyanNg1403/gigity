@@ -81,6 +81,30 @@ ggt diff $(ggt find "auth bug" | awk '{print $1}')  # Pipe into diff
 | `--limit` | Max sessions to return (default: 1) |
 | `--json` | Output as JSON |
 
+### `ggt cost`
+
+Show token spend and estimated cost. Defaults to current project.
+
+```bash
+ggt cost                            # Current project total
+ggt cost --all                      # All projects
+ggt cost --by=model                 # Breakdown by model
+ggt cost --by=day --after=2026-04-01 # Daily spend
+ggt cost --by=project --all         # Per-project breakdown
+```
+
+Pricing is based on the official Anthropic API rates (per million tokens). Cache write uses 1-hour extended pricing.
+
+| Flag | Description |
+|------|-------------|
+| `--all` | All projects (default: current project only) |
+| `--project` | Filter by project (substring match) |
+| `--by` | Group by: `model`, `day`, or `project` |
+| `--after` | Sessions after this date (YYYY-MM-DD) |
+| `--before` | Sessions before this date (YYYY-MM-DD) |
+| `--limit` | Max sessions in top-sessions view (default: 10) |
+| `--json` | Output as JSON |
+
 ### `ggt sync`
 
 Force a full re-sync of `~/.claude/` into the database. Normally not needed — all commands auto-sync when stale.
