@@ -17,17 +17,35 @@ git clone https://github.com/RyanNg1403/gigity.git
 cd gigity && pnpm install && pnpm build
 ```
 
+No manual sync needed — the database is built automatically on first use.
+
+## Oneshot: search, export, import
+
+Find a session by what you said in it, export it, and import it into another project — one command:
+
+```bash
+ggt oneshot "accept the first three - reject the remaining 3" -p ../byterover-cli
+```
+
+| Flag | Description |
+|---|---|
+| `-p, --project` | **(required)** Destination project directory for import |
+| `-f, --from` | Project to search in (default: cwd) |
+| `-n, --name` | Archive filename without `.tar.gz` (default: `imported-session`) |
+| `-y, --yes` | Accept all bundled env artifacts without prompting |
+| `--note` | Note to include in the handoff message |
+
 ## Export / Import
 
 ```bash
 # You: export the session
-ggt sessions export abc123 -o handoff.tar.gz
+ggt sessions export abc123 -o handoff
 
 # Teammate: import it
 ggt sessions import handoff.tar.gz --project-dir /path/to/project
 ```
 
-The bundle includes the full conversation transcript, subagents, tool results, file history, project memories, and — crucially — the session's **environment dependencies**:
+The `.tar.gz` extension is added automatically. The bundle includes the full conversation transcript, subagents, tool results, file history, project memories, and the session's **environment dependencies**:
 
 | Artifact | Bundled how |
 |---|---|
@@ -60,11 +78,16 @@ See [docs/session-export-import.md](docs/session-export-import.md) for the full 
 ## Other commands
 
 ```bash
-ggt sessions list --project=my-app    # Browse sessions
-ggt sessions show f81f                # Session details
-ggt messages search "auth bug"        # Search across sessions
+ggt sessions list --project=.          # Sessions in current project
+ggt sessions show f81f                 # Session details
+ggt messages search "auth bug" --project=. # Search in current project
+ggt sync                               # Force a full re-sync
 ggt sql "SELECT COUNT(*) FROM sessions" # Raw SQL
 ```
+
+All path flags (`--project`, `--from`) resolve `.` to the current directory.
+
+The database auto-syncs when stale (>60s). Use `ggt sync` to force it.
 
 See [docs/ggt-cli.md](docs/ggt-cli.md) for the full CLI reference. There's also a [local web UI](docs/web-ui.md) for visual exploration (`pnpm web:dev`).
 
