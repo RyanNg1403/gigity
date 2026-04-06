@@ -109,9 +109,14 @@ ggt messages list f81f --offset=50 --limit=5
 # 1. Search for the topic
 ggt messages search "<distinctive-term>" --project=. --limit=5
 
-# 2. Read surrounding messages
-ggt messages list <session-prefix> --offset=<msg_index-3> --limit=10 --full
+# 2. Scan messages around the match (truncated — safe)
+ggt messages list <session-prefix> --offset=<msg_index-3> --limit=10
+
+# 3. Only --full on the specific message you need
+ggt messages list <session-prefix> --offset=<msg_index> --limit=1 --full
 ```
+
+**Warning:** `--full` with high `--limit` can blow context — user messages often contain pasted files, API responses, and tool outputs of unpredictable size. Always scan truncated first, then `--full` on individual messages.
 
 ## Workflow: Resume previous work
 
@@ -119,6 +124,9 @@ ggt messages list <session-prefix> --offset=<msg_index-3> --limit=10 --full
 # 1. Find recent sessions
 ggt sessions list --project=. --limit=5
 
-# 2. Read where they stopped
-ggt messages list <session-prefix> --type=user --offset=<msg_count-10> --limit=10 --full
+# 2. Scan where they stopped (truncated first)
+ggt messages list <session-prefix> --type=user --offset=<msg_count-10> --limit=10
+
+# 3. Read specific messages in full
+ggt messages list <session-prefix> --offset=<N> --limit=2 --full
 ```

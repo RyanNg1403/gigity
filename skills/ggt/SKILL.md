@@ -15,17 +15,19 @@ All commands auto-sync fresh data and are read-only (except `undo`). Session IDs
 
 ## Context efficiency rules
 
-**Never start with full diffs.** Always narrow first, then drill:
+**Never start with full output.** Always narrow first, then drill:
 
 1. `--stat` or `--grep` before raw `diff` — get the summary or filter to one function
 2. `blame` before `log` — know which session matters before loading diffs
 3. `-L` on blame — pinpoint lines, don't load the whole file history
 4. `--grep` on log — only sessions touching the relevant code, not all sessions
+5. **Never `messages list --full` without narrowing first** — user messages often contain pasted files, API responses, and tool dumps that can be thousands of lines
 
 **Dangerous (context-blowing):**
 - `ggt diff` on a large session with no filters — can dump hundreds of lines
 - `ggt log <file> --net` on a frequently edited file — full diffs for every session
 - `ggt log <file> --explain` with no `--grep` or `-L` — dumps every edit in the session
+- `ggt messages list <id> --full` with high `--limit` — user messages can contain entire pasted files, JSON payloads, and tool outputs of unpredictable size
 
 **Safe (token-efficient):**
 - `ggt diff --stat` → `ggt diff --grep=functionName` → `ggt diff --file=path`
@@ -33,6 +35,7 @@ All commands auto-sync fresh data and are read-only (except `undo`). Session IDs
 - `ggt log file` (compact) → `ggt log file --grep=term` → `ggt log file --explain --session=X`
 - `ggt log file --explain --grep=fn` → only edits touching `fn`, skips the rest
 - `ggt log file --explain -L 40,50` → only edits affecting those lines
+- `ggt messages list <id> --limit=10` (truncated) → scan topics → `messages search "term" --session=<id>` → `messages list <id> --offset=N --limit=1 --full` on the one that matters
 
 ---
 
@@ -80,8 +83,9 @@ ggt find "rate limiting" --all --limit=5  # search all projects
 # Search message content across sessions
 ggt messages search "authentication bug" --project=. --limit=5
 
-# Read the conversation around a match
-ggt messages list <session-prefix> --offset=<N-3> --limit=10 --full
+# Read the conversation around a match — narrow first, then --full
+ggt messages list <session-prefix> --limit=10         # truncated scan
+ggt messages list <session-prefix> --offset=N --limit=1 --full  # one message
 ```
 
 For full flags: read `references/search.md`
