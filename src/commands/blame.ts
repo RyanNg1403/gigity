@@ -44,10 +44,25 @@ export default class Blame extends Command {
       LIMIT ?
     `;
 
-    // Try exact match first, fall back to substring only if no results
+    // Try exact match first, fall back to substring scoped to current project
     let rows = db.prepare(query).all(resolvedPath, flags.limit) as Record<string, unknown>[];
     if (rows.length === 0) {
-      rows = db.prepare(query).all(`%${args.file}%`, flags.limit) as Record<string, unknown>[];
+      const cwd = path.resolve(".");
+      const scopedQuery = `
+        SELECT tc.file_path, tc.tool_name, tc.timestamp,
+          s.id as session_id, s.first_prompt, s.created_at, s.model_used,
+          p.original_path as project_path, p.name as project_name
+        FROM tool_calls tc
+        JOIN sessions s ON tc.session_id = s.id
+        JOIN projects p ON s.project_id = p.id
+        WHERE tc.file_path IS NOT NULL
+          AND tc.tool_name IN ('Edit', 'Write')
+          AND tc.file_path LIKE ?
+          AND (p.original_path LIKE ? OR p.original_path = ?)
+        ORDER BY tc.timestamp DESC
+        LIMIT ?
+      `;
+      rows = db.prepare(scopedQuery).all(`%${args.file}%`, `%${cwd}%`, cwd, flags.limit) as Record<string, unknown>[];
     }
 
     if (rows.length === 0) {
