@@ -40,6 +40,7 @@ ggt messages search "ENOENT" --project=my-app --limit=5
 | `--session` | Search within one session (prefix) |
 | `--type` | `user` or `assistant` only |
 | `--limit` | Max results (default: 10) |
+| `--context` | Lines of context around match (default: 0) |
 | `--json` | JSON with score, session_id, msg_index |
 
 Tips:

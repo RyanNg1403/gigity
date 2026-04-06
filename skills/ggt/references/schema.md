@@ -82,6 +82,57 @@ CREATE TABLE daily_stats (
 );
 ```
 
+### session_turns (internal — not yet exposed by commands)
+```sql
+CREATE TABLE session_turns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT,
+  turn_number INTEGER,
+  user_uuid TEXT,
+  user_timestamp TEXT,
+  user_text TEXT,
+  assistant_count INTEGER DEFAULT 0,
+  tool_call_count INTEGER DEFAULT 0,
+  tool_error_count INTEGER DEFAULT 0,
+  has_thinking INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  context_tokens INTEGER DEFAULT 0
+);
+```
+
+### session_metrics (internal — not yet exposed by commands)
+```sql
+CREATE TABLE session_metrics (
+  session_id TEXT PRIMARY KEY,
+  metrics_version INTEGER DEFAULT 1,
+  jsonl_mtime REAL,
+  turn_count INTEGER DEFAULT 0,
+  first_attempt_success_rate REAL DEFAULT 0,
+  interruption_rate REAL DEFAULT 0,
+  correction_rate REAL DEFAULT 0,
+  tool_error_rate REAL DEFAULT 0,
+  token_efficiency REAL DEFAULT 0,
+  prompt_specificity REAL DEFAULT 0,
+  error_loop_count INTEGER DEFAULT 0,
+  thinking_effectiveness REAL DEFAULT 0,
+  momentum TEXT DEFAULT 'stable',
+  overall_score REAL DEFAULT 0,
+  computed_at TEXT
+);
+```
+
+### turn_events (internal — not yet exposed by commands)
+```sql
+CREATE TABLE turn_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT,
+  turn_number INTEGER,
+  event_type TEXT,        -- 'success', 'interruption', 'correction', 'error_loop'
+  matched_rule TEXT,
+  tokens_wasted INTEGER DEFAULT 0
+);
+```
+
 ### sessions_fts (FTS5)
 ```sql
 SELECT session_id FROM sessions_fts WHERE sessions_fts MATCH 'keyword';
