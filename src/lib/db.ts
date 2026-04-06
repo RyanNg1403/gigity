@@ -92,7 +92,8 @@ function initSchema(db: Database.Database) {
       message_uuid TEXT REFERENCES messages(uuid),
       session_id TEXT REFERENCES sessions(id),
       tool_name TEXT,
-      timestamp TEXT
+      timestamp TEXT,
+      file_path TEXT
     );
 
     CREATE TABLE IF NOT EXISTS daily_stats (
@@ -163,4 +164,14 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id);
     CREATE INDEX IF NOT EXISTS idx_turn_events_session ON turn_events(session_id);
   `);
+
+  // Migration: add file_path column to existing tool_calls tables
+  try {
+    db.exec("ALTER TABLE tool_calls ADD COLUMN file_path TEXT");
+    // Invalidate all sessions so sync re-indexes them with file_path populated
+    db.exec("UPDATE sessions SET jsonl_mtime = 0");
+  } catch {
+    // Column already exists
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tool_calls_file_path ON tool_calls(file_path)");
 }

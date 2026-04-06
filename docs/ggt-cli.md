@@ -1,6 +1,6 @@
 # ggt CLI Reference
 
-`ggt` is the Gigity command-line interface for querying Claude Code session data. It indexes `~/.claude/` into a local SQLite database (`~/.claude/gigity.db`) and auto-syncs when the DB is older than 60 seconds.
+`ggt` is git for AI coding sessions. It indexes `~/.claude/` into a local SQLite database (`~/.claude/gigity.db`) and provides `diff`, `blame`, search, and session transfer commands. Auto-syncs when the DB is older than 60 seconds.
 
 ## Installation
 
@@ -10,6 +10,39 @@ pnpm install && pnpm build && npm link
 ```
 
 ## Commands
+
+### `ggt diff <session-id>`
+
+Show file changes made in a session. Extracts every `Edit` and `Write` tool call, matches with results (rejected changes excluded), and presents as a unified diff.
+
+```bash
+ggt diff abc123                  # Full diff of all file changes
+ggt diff abc123 --stat           # Summary: files changed, lines +/-
+ggt diff abc123 --file=db.ts     # Filter to one file
+ggt diff abc123 --json           # Machine-readable output
+```
+
+| Flag | Description |
+|------|-------------|
+| `--stat` | Show summary only (files changed, lines added/removed) |
+| `--file` | Filter to a specific file path (substring match) |
+| `--json` | Output as JSON |
+
+### `ggt blame <file>`
+
+Show which sessions modified a file. Supports absolute paths, relative paths, and substring matching.
+
+```bash
+ggt blame src/lib/db.ts          # Relative path (resolved from cwd)
+ggt blame auth                   # Substring match across all files
+ggt blame /abs/path/file.ts      # Absolute path
+ggt blame db.ts --limit=5 --json
+```
+
+| Flag | Description |
+|------|-------------|
+| `--limit` | Max results (default: 20) |
+| `--json` | Output as JSON |
 
 ### `ggt sync`
 
@@ -175,7 +208,7 @@ The SQLite database at `~/.claude/gigity.db` contains:
 | `projects` | Indexed projects with names and paths |
 | `sessions` | Session metadata, token counts, model, git branch |
 | `messages` | Individual messages with token usage |
-| `tool_calls` | Tool call records linked to messages |
+| `tool_calls` | Tool call records with file paths for Edit/Write |
 | `sessions_fts` | FTS5 full-text search index |
 | `session_turns` | Turn-by-turn breakdown |
 | `session_metrics` | Computed effectiveness scores per session |

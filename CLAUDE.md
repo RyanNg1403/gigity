@@ -1,6 +1,6 @@
-# Gigity — Claude Code Session Toolkit
+# Gigity — git for AI coding sessions
 
-A CLI for querying, searching, exporting, and transferring Claude Code sessions stored in `~/.claude`.
+A CLI for diffing, blaming, searching, and transferring Claude Code sessions stored in `~/.claude`.
 
 ## Tech Stack
 
@@ -34,6 +34,7 @@ All data comes from `~/.claude/`:
 ## Key Architecture
 
 - **Auto-sync**: DB auto-syncs when stale (>60s) on any `ggt` command. Incremental by file mtime.
+- **Diff/Blame**: Extracts Edit/Write tool calls from JSONL transcripts. `file_path` is indexed in `tool_calls` table for fast blame queries. Diff reads JSONL directly for full arguments (old_string/new_string/content).
 - **Session export/import**: Bundles JSONL + subagents + tool results + file history + memories + env deps into a `.tar.gz`. Import rewrites paths and offers interactive env setup.
 - **Oneshot**: Search → export → import pipeline in one command.
 
@@ -41,6 +42,8 @@ All data comes from `~/.claude/`:
 
 | Command | Purpose |
 |---|---|
+| `ggt diff <id>` | Show file changes (edits/writes) in a session |
+| `ggt blame <file>` | Which sessions modified a file |
 | `ggt sessions list` | Browse sessions, filter by `--project` |
 | `ggt sessions show <id>` | Session details and token usage |
 | `ggt sessions export <id>` | Export session bundle |

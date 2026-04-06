@@ -237,8 +237,8 @@ async function indexSession(
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertToolCall = db.prepare(`
-      INSERT OR IGNORE INTO tool_calls (id, message_uuid, session_id, tool_name, timestamp)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO tool_calls (id, message_uuid, session_id, tool_name, timestamp, file_path)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
 
     seq = 0;
@@ -259,10 +259,13 @@ async function indexSession(
 
         if (Array.isArray(content)) {
           for (const block of content) {
-            const b = block as { type: string; name?: string; id?: string };
+            const b = block as { type: string; name?: string; id?: string; input?: Record<string, unknown> };
             if (b.type === "tool_use" && b.name) {
               toolNames.push(b.name);
-              insertToolCall.run(b.id || `tc-${sessionId}-${seq}-${toolNames.length}`, uuid, sessionId, b.name, timestamp);
+              const filePath = (b.name === "Edit" || b.name === "Write") && b.input?.file_path
+                ? String(b.input.file_path)
+                : null;
+              insertToolCall.run(b.id || `tc-${sessionId}-${seq}-${toolNames.length}`, uuid, sessionId, b.name, timestamp, filePath);
             }
             if (b.type === "thinking") hasThinking = true;
           }
