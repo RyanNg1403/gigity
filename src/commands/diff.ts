@@ -1,9 +1,9 @@
 import { Args, Command, Flags } from "@oclif/core";
 import { ensureSynced } from "../lib/auto-sync.js";
-import { extractFileChanges, groupByFile, formatDiff, formatStat } from "../lib/diff.js";
+import { computeSessionDiff, formatStat } from "../lib/diff.js";
 
 export default class Diff extends Command {
-  static override description = "Show file changes made in a session (edits, writes)";
+  static override description = "Show net file changes in a session (first state → final state)";
 
   static override examples = [
     "<%= config.bin %> diff abc123",
@@ -40,21 +40,19 @@ export default class Diff extends Command {
     }
 
     const jsonlPath = session.jsonl_path as string;
-    const changes = await extractFileChanges(jsonlPath);
+    let { diffs, rejected } = await computeSessionDiff(session.id as string, jsonlPath);
 
-    if (changes.length === 0) {
+    if (diffs.length === 0) {
       this.log("No file changes in this session.");
       return;
     }
 
-    let summaries = groupByFile(changes);
-
     // Filter by file path if specified
     if (flags.file) {
-      summaries = summaries.filter((s) =>
-        s.filePath.toLowerCase().includes(flags.file!.toLowerCase())
+      diffs = diffs.filter((d) =>
+        d.filePath.toLowerCase().includes(flags.file!.toLowerCase()),
       );
-      if (summaries.length === 0) {
+      if (diffs.length === 0) {
         this.log(`No changes matching "${flags.file}" in this session.`);
         return;
       }
@@ -65,20 +63,13 @@ export default class Diff extends Command {
         sessionId: session.id,
         project: session.project_name,
         createdAt: session.created_at,
-        files: summaries.map((s) => ({
-          path: s.filePath,
-          edits: s.edits,
-          writes: s.writes,
-          linesAdded: s.linesAdded,
-          linesRemoved: s.linesRemoved,
-          changes: s.changes.map((c) => ({
-            tool: c.toolName,
-            timestamp: c.timestamp,
-            ...(c.toolName === "Edit" ? { oldString: c.oldString, newString: c.newString } : {}),
-            ...(c.toolName === "Write" ? { contentLength: c.content?.length || 0 } : {}),
-          })),
+        files: diffs.map((d) => ({
+          path: d.filePath,
+          linesAdded: d.linesAdded,
+          linesRemoved: d.linesRemoved,
+          isNew: d.isNew,
         })),
-        rejected: changes.filter((c) => !c.succeeded).length,
+        rejected,
       }, null, 2));
       return;
     }
@@ -90,19 +81,19 @@ export default class Diff extends Command {
     if (prompt) this.log(`\x1b[2m${prompt}\x1b[0m`);
     this.log("");
 
-    // Rejected count
-    const rejected = changes.filter((c) => !c.succeeded).length;
     if (rejected > 0) {
       this.log(`\x1b[33m${rejected} rejected change${rejected > 1 ? "s" : ""} not shown\x1b[0m\n`);
     }
 
     if (flags.stat) {
-      this.log(formatStat(summaries));
+      this.log(formatStat(diffs));
     } else {
-      this.log(formatDiff(summaries));
-      // Also show stat summary at the bottom
+      for (const d of diffs) {
+        this.log(d.diffText);
+        this.log("");
+      }
       this.log("---");
-      this.log(formatStat(summaries));
+      this.log(formatStat(diffs));
     }
   }
 }

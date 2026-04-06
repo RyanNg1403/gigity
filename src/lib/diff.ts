@@ -1,210 +1,396 @@
-import { parseJsonl, type JsonlRecord } from "./jsonl.js";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { execSync } from "node:child_process";
+import { parseJsonl } from "./jsonl.js";
 
-export interface FileChange {
-  filePath: string;
-  toolName: "Edit" | "Write";
-  toolUseId: string;
-  oldString?: string;
-  newString?: string;
-  content?: string;
-  replaceAll?: boolean;
-  timestamp: string;
-  succeeded: boolean;
-}
+const FILE_HISTORY_DIR = path.join(os.homedir(), ".claude", "file-history");
 
-export interface FileSummary {
+// ── Public types ────────────────────────────────────────────────
+
+export interface NetFileDiff {
   filePath: string;
-  edits: number;
-  writes: number;
   linesAdded: number;
   linesRemoved: number;
-  changes: FileChange[];
+  isNew: boolean;
+  diffText: string;
 }
 
-/**
- * Extract all file-modifying tool calls from a session JSONL,
- * matched with their tool_result to determine success/failure.
- */
-export async function extractFileChanges(jsonlPath: string): Promise<FileChange[]> {
-  const toolUses = new Map<string, FileChange>();
-  const toolResults = new Map<string, { isError: boolean }>();
+export interface SessionDiffResult {
+  diffs: NetFileDiff[];
+  rejected: number;
+}
+
+// ── Main entry point ────────────────────────────────────────────
+
+export async function computeSessionDiff(
+  sessionId: string,
+  jsonlPath: string,
+): Promise<SessionDiffResult> {
+  const historyDir = path.join(FILE_HISTORY_DIR, sessionId);
+  const rejected = await countRejectedChanges(jsonlPath);
+
+  // Step 1: Net diffs from file-history (existing files edited 2+ times)
+  const historyDiffs = new Map<string, NetFileDiff>(); // filePath → diff
+  if (fs.existsSync(historyDir)) {
+    const hashToPath = await buildHashToPathMap(jsonlPath);
+    const versionGroups = scanFileHistory(historyDir);
+
+    for (const [hash, versions] of versionGroups) {
+      if (versions.length < 2) continue; // need at least 2 snapshots
+      const filePath = hashToPath.get(hash);
+      if (!filePath) continue;
+
+      versions.sort((a, b) => a - b);
+      const oldFile = path.join(historyDir, `${hash}@v${versions[0]}`);
+      const newFile = path.join(historyDir, `${hash}@v${versions[versions.length - 1]}`);
+
+      const oldContent = fs.readFileSync(oldFile, "utf-8");
+      const newContent = fs.readFileSync(newFile, "utf-8");
+      if (oldContent === newContent) continue;
+
+      const { text, added, removed } = unifiedDiff(oldContent, newContent, filePath);
+      if (text) {
+        historyDiffs.set(filePath, { filePath, linesAdded: added, linesRemoved: removed, isNew: false, diffText: text });
+      }
+    }
+  }
+
+  // Step 2: New files from Write tool calls (no file-history for these)
+  const newFileDiffs = await extractNewFileWrites(jsonlPath, historyDiffs);
+
+  // Combine: file-history diffs + new file diffs
+  const diffs = [...historyDiffs.values(), ...newFileDiffs];
+
+  // Step 3: If file-history gave us nothing, full fallback to tool calls
+  if (diffs.length === 0) {
+    const fallback = await fallbackFromToolCalls(jsonlPath);
+    return { diffs: fallback, rejected };
+  }
+
+  return { diffs, rejected };
+}
+
+// ── File-history: hash→path mapping ─────────────────────────────
+
+async function buildHashToPathMap(jsonlPath: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+
+  for await (const record of parseJsonl(jsonlPath)) {
+    if (record.type !== "file-history-snapshot") continue;
+    const snapshot = record.snapshot as
+      | { trackedFileBackups?: Record<string, { backupFileName: string | null }> }
+      | undefined;
+    if (!snapshot?.trackedFileBackups) continue;
+
+    for (const [filePath, info] of Object.entries(snapshot.trackedFileBackups)) {
+      if (info.backupFileName) {
+        const hash = info.backupFileName.split("@v")[0];
+        if (!map.has(hash)) map.set(hash, filePath);
+      }
+    }
+  }
+
+  return map;
+}
+
+/** Scan file-history directory, group actual files on disk by hash */
+function scanFileHistory(historyDir: string): Map<string, number[]> {
+  const groups = new Map<string, number[]>();
+
+  for (const file of fs.readdirSync(historyDir)) {
+    const match = file.match(/^([a-f0-9]+)@v(\d+)$/);
+    if (!match) continue;
+    const [, hash, vStr] = match;
+    const version = parseInt(vStr, 10);
+    const arr = groups.get(hash) || [];
+    arr.push(version);
+    groups.set(hash, arr);
+  }
+
+  return groups;
+}
+
+// ── New file detection from Write tool calls ────────────────────
+
+async function extractNewFileWrites(
+  jsonlPath: string,
+  alreadyCovered: Map<string, NetFileDiff>,
+): Promise<NetFileDiff[]> {
+  // Find Write tool calls that created new files not covered by file-history
+  const writes = new Map<string, string>(); // filePath → last content written
+  const writeIds = new Map<string, string>(); // toolUseId → filePath
+  const rejected = new Set<string>(); // rejected toolUseIds
 
   for await (const record of parseJsonl(jsonlPath)) {
     if (record.type === "assistant") {
-      extractToolUses(record, toolUses);
+      const content = record.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "tool_use" && b.name === "Write" && b.input) {
+          const input = b.input as Record<string, unknown>;
+          if (input.file_path && input.content != null) {
+            writeIds.set(String(b.id), String(input.file_path));
+          }
+        }
+      }
     } else if (record.type === "user") {
-      extractToolResults(record, toolResults);
+      const content = record.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "tool_result" && b.tool_use_id) {
+          const id = String(b.tool_use_id);
+          if (b.is_error === true) {
+            rejected.add(id);
+          } else if (writeIds.has(id)) {
+            // Successful write — we need to re-read the JSONL to get content
+            // For now, mark the file path as needing content
+            writes.set(writeIds.get(id)!, "");
+          }
+        }
+      }
     }
   }
 
-  // Match tool_use with tool_result and mark success/failure
-  const changes: FileChange[] = [];
-  for (const [id, change] of toolUses) {
-    const result = toolResults.get(id);
-    // If no result found, assume it succeeded (edge case: session still running)
-    change.succeeded = result ? !result.isError : true;
-    changes.push(change);
-  }
-
-  return changes;
-}
-
-function extractToolUses(record: JsonlRecord, out: Map<string, FileChange>) {
-  const content = record.message?.content;
-  if (!Array.isArray(content)) return;
-  const timestamp = record.timestamp || "";
-
-  for (const block of content) {
-    const b = block as Record<string, unknown>;
-    if (b.type !== "tool_use") continue;
-
-    const name = b.name as string;
-    const id = b.id as string;
-    const input = b.input as Record<string, unknown> | undefined;
-    if (!input?.file_path) continue;
-
-    if (name === "Edit") {
-      out.set(id, {
-        filePath: String(input.file_path),
-        toolName: "Edit",
-        toolUseId: id,
-        oldString: input.old_string != null ? String(input.old_string) : undefined,
-        newString: input.new_string != null ? String(input.new_string) : undefined,
-        replaceAll: input.replace_all === true,
-        timestamp,
-        succeeded: true,
-      });
-    } else if (name === "Write") {
-      out.set(id, {
-        filePath: String(input.file_path),
-        toolName: "Write",
-        toolUseId: id,
-        content: input.content != null ? String(input.content) : undefined,
-        timestamp,
-        succeeded: true,
-      });
+  // Second pass to get actual content of successful writes
+  const fileContents = new Map<string, string>();
+  for await (const record of parseJsonl(jsonlPath)) {
+    if (record.type !== "assistant") continue;
+    const content = record.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      const b = block as Record<string, unknown>;
+      if (b.type === "tool_use" && b.name === "Write" && b.input) {
+        const input = b.input as Record<string, unknown>;
+        const fp = String(input.file_path || "");
+        const id = String(b.id);
+        if (writes.has(fp) && !rejected.has(id)) {
+          fileContents.set(fp, String(input.content || ""));
+        }
+      }
     }
   }
-}
 
-function extractToolResults(record: JsonlRecord, out: Map<string, { isError: boolean }>) {
-  const content = record.message?.content;
-  if (!Array.isArray(content)) return;
+  const diffs: NetFileDiff[] = [];
+  for (const [filePath, content] of fileContents) {
+    // Skip files already covered by file-history
+    if (alreadyCovered.has(filePath)) continue;
+    if (!content) continue;
 
-  for (const block of content) {
-    const b = block as Record<string, unknown>;
-    if (b.type !== "tool_result" || !b.tool_use_id) continue;
-    out.set(String(b.tool_use_id), { isError: b.is_error === true });
-  }
-}
-
-/** Group changes by file path, only successful ones */
-export function groupByFile(changes: FileChange[]): FileSummary[] {
-  const successful = changes.filter((c) => c.succeeded);
-  const groups = new Map<string, FileChange[]>();
-
-  for (const c of successful) {
-    const existing = groups.get(c.filePath) || [];
-    existing.push(c);
-    groups.set(c.filePath, existing);
+    const lines = content.split("\n").length;
+    diffs.push({
+      filePath,
+      linesAdded: lines,
+      linesRemoved: 0,
+      isNew: true,
+      diffText: formatNewFile(filePath, content),
+    });
   }
 
-  const summaries: FileSummary[] = [];
-  for (const [filePath, fileChanges] of groups) {
-    let linesAdded = 0;
-    let linesRemoved = 0;
-    let edits = 0;
-    let writes = 0;
+  return diffs;
+}
 
-    for (const c of fileChanges) {
-      if (c.toolName === "Edit") {
-        edits++;
-        const oldLines = (c.oldString || "").split("\n").length;
-        const newLines = (c.newString || "").split("\n").length;
-        linesAdded += Math.max(0, newLines - oldLines);
-        linesRemoved += Math.max(0, oldLines - newLines);
+// ── Full fallback: per-edit when no file-history exists ─────────
+
+async function fallbackFromToolCalls(jsonlPath: string): Promise<NetFileDiff[]> {
+  const toolUses = new Map<string, { name: string; input: Record<string, unknown> }>();
+  const toolResults = new Map<string, boolean>();
+
+  for await (const record of parseJsonl(jsonlPath)) {
+    if (record.type === "assistant") {
+      const content = record.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "tool_use" && (b.name === "Edit" || b.name === "Write") && b.input) {
+          const input = b.input as Record<string, unknown>;
+          if (input.file_path) {
+            toolUses.set(String(b.id), { name: String(b.name), input });
+          }
+        }
+      }
+    } else if (record.type === "user") {
+      const content = record.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "tool_result" && b.tool_use_id) {
+          toolResults.set(String(b.tool_use_id), b.is_error !== true);
+        }
+      }
+    }
+  }
+
+  const byFile = new Map<string, { name: string; input: Record<string, unknown> }[]>();
+  for (const [id, tu] of toolUses) {
+    if (!(toolResults.get(id) ?? true)) continue;
+    const fp = String(tu.input.file_path);
+    const arr = byFile.get(fp) || [];
+    arr.push(tu);
+    byFile.set(fp, arr);
+  }
+
+  const diffs: NetFileDiff[] = [];
+  for (const [filePath, changes] of byFile) {
+    const lines: string[] = [];
+    let added = 0;
+    let removed = 0;
+
+    for (const c of changes) {
+      if (c.name === "Write") {
+        const content = String(c.input.content || "");
+        lines.push(`\x1b[1m+++ b/${filePath}\x1b[0m  \x1b[2m(write)\x1b[0m`);
+        const cl = content.split("\n");
+        for (const l of cl.slice(0, 50)) lines.push(`\x1b[32m+${l}\x1b[0m`);
+        if (cl.length > 50) lines.push(`\x1b[2m  ... ${cl.length - 50} more lines\x1b[0m`);
+        lines.push("");
+        added += cl.length;
       } else {
-        writes++;
-        linesAdded += (c.content || "").split("\n").length;
+        const old = String(c.input.old_string || "");
+        const nw = String(c.input.new_string || "");
+        lines.push(`\x1b[1m--- a/${filePath}\x1b[0m`);
+        lines.push(`\x1b[1m+++ b/${filePath}\x1b[0m`);
+        for (const l of old.split("\n")) { lines.push(`\x1b[31m-${l}\x1b[0m`); removed++; }
+        for (const l of nw.split("\n")) { lines.push(`\x1b[32m+${l}\x1b[0m`); added++; }
+        lines.push("");
       }
     }
 
-    summaries.push({ filePath, edits, writes, linesAdded, linesRemoved, changes: fileChanges });
+    diffs.push({ filePath, linesAdded: added, linesRemoved: removed, isNew: false, diffText: lines.join("\n") });
   }
 
-  // Sort by first change timestamp
-  summaries.sort((a, b) => (a.changes[0].timestamp < b.changes[0].timestamp ? -1 : 1));
-  return summaries;
+  return diffs;
 }
 
-/** Format a file summary as unified-diff-style output */
-export function formatDiff(summaries: FileSummary[]): string {
-  const lines: string[] = [];
+// ── Diff helpers ────────────────────────────────────────────────
 
-  for (const summary of summaries) {
-    const shortPath = summary.filePath;
+function unifiedDiff(
+  oldContent: string,
+  newContent: string,
+  filePath: string,
+): { text: string; added: number; removed: number } {
+  const tmpOld = path.join(os.tmpdir(), `ggt-old-${process.pid}-${Date.now()}`);
+  const tmpNew = path.join(os.tmpdir(), `ggt-new-${process.pid}-${Date.now()}`);
 
-    for (const change of summary.changes) {
-      if (change.toolName === "Write") {
-        lines.push(`\x1b[1m+++ ${shortPath}\x1b[0m  \x1b[2m(write)\x1b[0m`);
-        for (const line of (change.content || "").split("\n").slice(0, 50)) {
-          lines.push(`\x1b[32m+${line}\x1b[0m`);
-        }
-        const totalLines = (change.content || "").split("\n").length;
-        if (totalLines > 50) {
-          lines.push(`\x1b[2m  ... ${totalLines - 50} more lines\x1b[0m`);
-        }
-        lines.push("");
-      } else if (change.toolName === "Edit") {
-        lines.push(`\x1b[1m--- ${shortPath}\x1b[0m`);
-        lines.push(`\x1b[1m+++ ${shortPath}\x1b[0m`);
-        for (const line of (change.oldString || "").split("\n")) {
-          lines.push(`\x1b[31m-${line}\x1b[0m`);
-        }
-        for (const line of (change.newString || "").split("\n")) {
-          lines.push(`\x1b[32m+${line}\x1b[0m`);
-        }
-        lines.push("");
-      }
+  fs.writeFileSync(tmpOld, oldContent);
+  fs.writeFileSync(tmpNew, newContent);
+
+  let rawDiff: string;
+  try {
+    rawDiff = execSync(`diff -u "${tmpOld}" "${tmpNew}"`, { encoding: "utf-8" });
+    rawDiff = "";
+  } catch (e: unknown) {
+    const err = e as { status?: number; stdout?: string };
+    rawDiff = err.status === 1 ? (err.stdout || "") : "";
+  } finally {
+    try { fs.unlinkSync(tmpOld); } catch { /* */ }
+    try { fs.unlinkSync(tmpNew); } catch { /* */ }
+  }
+
+  if (!rawDiff) return { text: "", added: 0, removed: 0 };
+
+  let added = 0;
+  let removed = 0;
+  const colored: string[] = [];
+
+  for (const [i, line] of rawDiff.split("\n").entries()) {
+    if (i === 0 && line.startsWith("---")) {
+      colored.push(`\x1b[1m--- a/${filePath}\x1b[0m`);
+    } else if (i === 1 && line.startsWith("+++")) {
+      colored.push(`\x1b[1m+++ b/${filePath}\x1b[0m`);
+    } else if (line.startsWith("@@")) {
+      colored.push(`\x1b[36m${line}\x1b[0m`);
+    } else if (line.startsWith("-")) {
+      removed++;
+      colored.push(`\x1b[31m${line}\x1b[0m`);
+    } else if (line.startsWith("+")) {
+      added++;
+      colored.push(`\x1b[32m${line}\x1b[0m`);
+    } else {
+      colored.push(line);
     }
   }
 
+  return { text: colored.join("\n"), added, removed };
+}
+
+function formatNewFile(filePath: string, content: string): string {
+  const lines: string[] = [];
+  lines.push(`\x1b[1m+++ b/${filePath}\x1b[0m  \x1b[2m(new)\x1b[0m`);
+  const contentLines = content.split("\n");
+  for (const l of contentLines.slice(0, 50)) {
+    lines.push(`\x1b[32m+${l}\x1b[0m`);
+  }
+  if (contentLines.length > 50) {
+    lines.push(`\x1b[2m  ... ${contentLines.length - 50} more lines\x1b[0m`);
+  }
   return lines.join("\n");
 }
 
-/** Format a --stat style summary */
-export function formatStat(summaries: FileSummary[]): string {
-  if (summaries.length === 0) return "No file changes in this session.";
+// ── Rejected change counter ─────────────────────────────────────
+
+async function countRejectedChanges(jsonlPath: string): Promise<number> {
+  const editWriteIds = new Set<string>();
+  let rejected = 0;
+
+  for await (const record of parseJsonl(jsonlPath)) {
+    if (record.type === "assistant") {
+      const content = record.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "tool_use" && (b.name === "Edit" || b.name === "Write")) {
+          editWriteIds.add(String(b.id));
+        }
+      }
+    } else if (record.type === "user") {
+      const content = record.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "tool_result" && b.is_error === true && editWriteIds.has(String(b.tool_use_id))) {
+          rejected++;
+        }
+      }
+    }
+  }
+
+  return rejected;
+}
+
+// ── Stat formatting ─────────────────────────────────────────────
+
+export function formatStat(diffs: NetFileDiff[]): string {
+  if (diffs.length === 0) return "No file changes in this session.";
 
   const lines: string[] = [];
   let totalAdded = 0;
   let totalRemoved = 0;
-  let totalEdits = 0;
-  let totalWrites = 0;
 
-  // Find max path length for alignment
-  const maxPath = Math.min(60, Math.max(...summaries.map((s) => s.filePath.length)));
+  const maxPath = Math.min(60, Math.max(...diffs.map((d) => d.filePath.length)));
 
-  for (const s of summaries) {
-    const path = s.filePath.length > 60
-      ? "..." + s.filePath.slice(s.filePath.length - 57)
-      : s.filePath;
-    const padded = path.padEnd(maxPath + 2);
-    const bar = "\x1b[32m" + "+".repeat(Math.min(s.linesAdded, 25)) + "\x1b[31m" + "-".repeat(Math.min(s.linesRemoved, 25)) + "\x1b[0m";
-    const ops = s.writes > 0 ? `${s.writes} write` : `${s.edits} edit${s.edits > 1 ? "s" : ""}`;
-    lines.push(` ${padded} ${ops.padEnd(10)} ${bar}`);
-    totalAdded += s.linesAdded;
-    totalRemoved += s.linesRemoved;
-    totalEdits += s.edits;
-    totalWrites += s.writes;
+  for (const d of diffs) {
+    const p = d.filePath.length > 60 ? "..." + d.filePath.slice(d.filePath.length - 57) : d.filePath;
+    const padded = p.padEnd(maxPath + 2);
+    const total = d.linesAdded + d.linesRemoved;
+    const barLen = Math.min(total, 40);
+    const addBar = total > 0 ? Math.round((d.linesAdded / total) * barLen) : 0;
+    const remBar = barLen - addBar;
+    const bar = `\x1b[32m${"+".repeat(addBar)}\x1b[31m${"-".repeat(remBar)}\x1b[0m`;
+    const label = d.isNew ? "(new)" : "";
+    lines.push(` ${padded} | ${String(total).padStart(4)} ${bar} ${label}`);
+    totalAdded += d.linesAdded;
+    totalRemoved += d.linesRemoved;
   }
 
   lines.push("");
-  const parts = [`${summaries.length} file${summaries.length > 1 ? "s" : ""} changed`];
-  if (totalEdits > 0) parts.push(`${totalEdits} edit${totalEdits > 1 ? "s" : ""}`);
-  if (totalWrites > 0) parts.push(`${totalWrites} write${totalWrites > 1 ? "s" : ""}`);
-  parts.push(`\x1b[32m+${totalAdded}\x1b[0m/\x1b[31m-${totalRemoved}\x1b[0m lines`);
-  lines.push(parts.join(", "));
+  lines.push(
+    ` ${diffs.length} file${diffs.length > 1 ? "s" : ""} changed, ` +
+      `\x1b[32m${totalAdded} insertion${totalAdded !== 1 ? "s" : ""}(+)\x1b[0m, ` +
+      `\x1b[31m${totalRemoved} deletion${totalRemoved !== 1 ? "s" : ""}(-)\x1b[0m`,
+  );
 
   return lines.join("\n");
 }
