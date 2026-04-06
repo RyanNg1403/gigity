@@ -95,3 +95,113 @@ export function readSnapshot(historyDir: string, hash: string, version: number):
   if (!fs.existsSync(filePath)) return null;
   return fs.readFileSync(filePath, "utf-8");
 }
+
+// ── Edit context tracing ────────────────────────────────────────
+
+export interface EditContext {
+  userPrompt: string | null;
+  userTimestamp: string | null;
+  claudeIntent: string | null;
+}
+
+/**
+ * Walk the parentUuid chain from an Edit/Write tool_use message
+ * back to the user prompt that triggered it and Claude's intent text.
+ */
+export function traceEditContext(
+  byUuid: Map<string, { type: string; parentUuid?: string; timestamp?: string; message?: { content?: unknown } }>,
+  editUuid: string,
+): EditContext {
+  let claudeIntent: string | null = null;
+  let userPrompt: string | null = null;
+  let userTimestamp: string | null = null;
+
+  let current = byUuid.get(editUuid);
+  let depth = 0;
+
+  while (current && depth < 50) {
+    const content = current.message?.content;
+
+    if (current.type === "assistant" && !claudeIntent && Array.isArray(content)) {
+      // Find the nearest assistant text block (Claude's intent)
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "text" && typeof b.text === "string" && (b.text as string).length > 10) {
+          claudeIntent = (b.text as string).slice(0, 300);
+          break;
+        }
+      }
+    }
+
+    if (current.type === "user" && Array.isArray(content)) {
+      // Look for a real user text message (not tool_result passthrough)
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "text" && typeof b.text === "string") {
+          userPrompt = (b.text as string).slice(0, 300);
+          userTimestamp = current.timestamp || null;
+          return { userPrompt, userTimestamp, claudeIntent };
+        }
+      }
+    } else if (current.type === "user" && typeof content === "string") {
+      userPrompt = (content as string).slice(0, 300);
+      userTimestamp = current.timestamp || null;
+      return { userPrompt, userTimestamp, claudeIntent };
+    }
+
+    current = byUuid.get(current.parentUuid || "");
+    depth++;
+  }
+
+  return { userPrompt, userTimestamp, claudeIntent };
+}
+
+/** Build a uuid → record map from a JSONL file for chain walking */
+export async function buildUuidMap(
+  jsonlPath: string,
+): Promise<Map<string, { type: string; parentUuid?: string; timestamp?: string; message?: { content?: unknown } }>> {
+  const map = new Map<string, { type: string; parentUuid?: string; timestamp?: string; message?: { content?: unknown } }>();
+
+  for await (const record of parseJsonl(jsonlPath)) {
+    if (record.uuid) {
+      map.set(record.uuid as string, {
+        type: record.type,
+        parentUuid: record.parentUuid as string | undefined,
+        timestamp: record.timestamp,
+        message: record.message,
+      });
+    }
+  }
+
+  return map;
+}
+
+/**
+ * Find the assistant message UUID that contains an Edit/Write tool_use
+ * targeting a specific file path.
+ */
+export async function findEditUuids(
+  jsonlPath: string,
+  filePath: string,
+): Promise<string[]> {
+  const uuids: string[] = [];
+
+  for await (const record of parseJsonl(jsonlPath)) {
+    if (record.type !== "assistant") continue;
+    const content = record.message?.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const block of content) {
+      const b = block as Record<string, unknown>;
+      if (b.type === "tool_use" && (b.name === "Edit" || b.name === "Write")) {
+        const input = b.input as Record<string, unknown> | undefined;
+        if (input?.file_path && String(input.file_path).endsWith(filePath)) {
+          if (record.uuid) uuids.push(record.uuid as string);
+          break;
+        }
+      }
+    }
+  }
+
+  return uuids;
+}

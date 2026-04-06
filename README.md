@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>git for AI coding sessions</strong><br>
-  <code>diff</code> · <code>blame</code> · <code>undo</code> · <code>cost</code> · <code>export</code><br><br>
+  <code>log</code> · <code>diff</code> · <code>blame</code> · <code>undo</code> · <code>cost</code> · <code>export</code><br><br>
   <a href="https://claude.com/claude-code">Claude Code</a> stores every session as structured data.<br>
   <code>ggt</code> makes it queryable.
 </p>
@@ -33,6 +33,16 @@ cd gigity && pnpm install && pnpm build && npm link
 The database is built automatically on first use. Every command syncs fresh data.
 
 ## Commands
+
+### `ggt log` — File history across sessions
+
+```bash
+ggt log src/lib/db.ts                     # Compact timeline
+ggt log src/lib/db.ts --patch             # With unified diffs
+ggt log src/lib/db.ts --explain=dab1f061  # Why was each edit made?
+```
+
+Shows every change to a file, chronologically. `--explain` traces each edit back to the **user prompt** that triggered it and **Claude's reasoning** — so you can understand not just *what* changed, but *why*.
 
 ### `ggt diff` — What did a session change?
 

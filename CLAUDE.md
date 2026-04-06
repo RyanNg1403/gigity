@@ -42,6 +42,7 @@ All data comes from `~/.claude/`:
 
 | Command | Purpose |
 |---|---|
+| `ggt log <file>` | File change history across sessions |
 | `ggt diff <id>` | Show file changes (edits/writes) in a session |
 | `ggt blame <file>` | Which sessions modified a file |
 | `ggt undo <id>` | Restore files to pre-session state |

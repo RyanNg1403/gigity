@@ -11,6 +11,25 @@ pnpm install && pnpm build && npm link
 
 ## Commands
 
+### `ggt log <file>`
+
+Show history of a file across all sessions — every change, chronologically.
+
+```bash
+ggt log src/lib/db.ts                     # Compact timeline
+ggt log src/lib/db.ts --patch             # With unified diffs
+ggt log src/lib/db.ts --explain=dab1f061  # Edit-by-edit motivations
+```
+
+`--explain` traces each edit back through the `parentUuid` chain to show the **user prompt** that triggered it and **Claude's intent** (the assistant text just before the edit).
+
+| Flag | Description |
+|------|-------------|
+| `-p, --patch` | Show unified diff for each session |
+| `--explain` | Show edit-by-edit motivations for a specific session (ID or prefix) |
+| `--limit` | Max sessions (default: 20) |
+| `--json` | Output as JSON |
+
 ### `ggt diff <session-id>`
 
 Show file changes made in a session. Extracts every `Edit` and `Write` tool call, matches with results (rejected changes excluded), and presents as a unified diff.
