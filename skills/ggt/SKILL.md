@@ -13,30 +13,50 @@ All commands auto-sync fresh data and are read-only (except `undo`). Session IDs
 
 ---
 
+## Context efficiency rules
+
+**Never start with full diffs.** Always narrow first, then drill:
+
+1. `--stat` or `--grep` before raw `diff` — get the summary or filter to one function
+2. `blame` before `log` — know which session matters before loading diffs
+3. `-L` on blame — pinpoint lines, don't load the whole file history
+4. `--grep` on log — only sessions touching the relevant code, not all sessions
+
+**Dangerous (context-blowing):**
+- `ggt diff` on a large session with no filters — can dump hundreds of lines
+- `ggt log <file> --net` on a frequently edited file — full diffs for every session
+- `ggt log <file> --explain` without `--session` — defaults to last session which may not be relevant
+
+**Safe (token-efficient):**
+- `ggt diff --stat` → `ggt diff --grep=functionName` → `ggt diff --file=path`
+- `ggt blame file -L 40,50` → one answer, minimal output
+- `ggt log file` (compact) → `ggt log file --grep=term` → `ggt log file --explain --session=X`
+
+---
+
 ## Debug: what changed and why
 
 ```bash
-# What did the last session change?
-ggt diff --stat                           # file summary
-ggt diff                                  # full net diffs
+# Step 1: summary first (ALWAYS start here)
+ggt diff --stat
 
-# What changed in a specific function?
+# Step 2: narrow to what matters
 ggt diff --grep=parseConfig               # only hunks touching parseConfig
+ggt diff --file=src/lib/db.ts             # one file only
 
 # Who changed this file?
 ggt blame src/lib/db.ts
 
-# Who wrote lines 40-50? (traces back to user prompt + Claude's reasoning)
+# Who wrote lines 40-50? (most focused — one answer)
 ggt blame src/lib/db.ts -L 40,50
 
-# History of a file across sessions
-ggt log src/lib/db.ts                     # compact timeline
+# File history — start compact, drill if needed
+ggt log src/lib/db.ts                     # compact timeline (safe)
 ggt log src/lib/db.ts --grep=initSchema   # only sessions that touched initSchema
-ggt log src/lib/db.ts --explain           # edit-by-edit: user prompt → Claude intent → diff
+ggt log src/lib/db.ts --explain --session=abc123  # specific session motivations
 
-# Revert the last session's changes
-ggt undo --dry-run                        # preview
-ggt undo                                  # apply
+# Revert
+ggt undo --dry-run                        # preview first
 ggt undo --file=src/lib/db.ts             # one file only
 ```
 
