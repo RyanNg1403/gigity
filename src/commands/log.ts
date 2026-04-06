@@ -20,7 +20,7 @@ export default class Log extends Command {
 
   static override examples = [
     "<%= config.bin %> log src/lib/db.ts",
-    "<%= config.bin %> log src/lib/db.ts --patch",
+    "<%= config.bin %> log src/lib/db.ts --net",
     "<%= config.bin %> log src/lib/db.ts --explain",
     "<%= config.bin %> log src/lib/db.ts --explain --session=dab1f061",
   ];
@@ -30,7 +30,7 @@ export default class Log extends Command {
   };
 
   static override flags = {
-    patch: Flags.boolean({ description: "Show unified diff for each session", char: "p" }),
+    net: Flags.boolean({ description: "Show net unified diff for each session" }),
     explain: Flags.boolean({ description: "Show edit-by-edit motivations (default: last session, or use --session)" }),
     session: Flags.string({ description: "Session ID or prefix for --explain (default: last session in current project)" }),
     limit: Flags.integer({ description: "Max sessions", default: 20 }),
@@ -145,7 +145,7 @@ export default class Log extends Command {
           linesAdded: added,
           linesRemoved: removed,
           isNew: false,
-          diffText: flags.patch ? text : undefined,
+          diffText: flags.net ? text : undefined,
         });
         break; // one match per session
       }
@@ -179,7 +179,7 @@ export default class Log extends Command {
       this.log("");
     }
 
-    this.log(`${entries.length} session${entries.length !== 1 ? "s" : ""}. Use --patch for diffs, --explain for motivations.`);
+    this.log(`${entries.length} session${entries.length !== 1 ? "s" : ""}. Use --net for diffs, --explain for motivations.`);
   }
 
   private async runExplain(session: import("../lib/resolve-session.js").ResolvedSession, file: string) {

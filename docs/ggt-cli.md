@@ -17,7 +17,7 @@ Show history of a file across all sessions — every change, chronologically.
 
 ```bash
 ggt log src/lib/db.ts                              # Compact timeline
-ggt log src/lib/db.ts --patch                      # With unified diffs
+ggt log src/lib/db.ts --net                      # With unified diffs
 ggt log src/lib/db.ts --explain                    # Motivations (last session)
 ggt log src/lib/db.ts --explain --session=dab1f061 # Motivations (specific session)
 ```
@@ -26,7 +26,7 @@ ggt log src/lib/db.ts --explain --session=dab1f061 # Motivations (specific sessi
 
 | Flag | Description |
 |------|-------------|
-| `-p, --patch` | Show unified diff for each session |
+| `--net` | Show net unified diff for each session |
 | `--explain` | Show edit-by-edit motivations (default: last session) |
 | `--session` | Session ID or prefix for `--explain` |
 | `--limit` | Max sessions (default: 20) |

@@ -38,7 +38,7 @@ The database is built automatically on first use. Every command syncs fresh data
 
 ```bash
 ggt log src/lib/db.ts                     # Compact timeline
-ggt log src/lib/db.ts --patch             # With unified diffs
+ggt log src/lib/db.ts --net             # With net diffs
 ggt log src/lib/db.ts --explain           # Why was each edit made? (last session)
 ```
 
