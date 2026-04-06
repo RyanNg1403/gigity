@@ -300,12 +300,18 @@ UNION ALL SELECT 'daily_stats', COUNT(*) FROM daily_stats
 
 | Command | Purpose | Key Flags |
 |---------|---------|-----------|
+| `ggt sync` | Force re-sync DB | |
 | `ggt projects list` | List projects | `--json` |
 | `ggt sessions list` | List sessions | `--project`, `--model`, `--after`, `--before`, `--branch`, `--limit`, `--json` |
 | `ggt sessions show <id>` | Session detail | `--json` (prefix match on id) |
+| `ggt sessions export <id>` | Export session bundle | `-o` output path (auto `.tar.gz`) |
+| `ggt sessions import <archive>` | Import session bundle | `--project-dir`, `--yes`, `--note` |
 | `ggt messages list <id>` | Read messages | `--type`, `--offset`, `--limit`, `--full`, `--json` |
 | `ggt messages search <q>` | Search content | `--project`, `--session`, `--type`, `--limit`, `--json` |
+| `ggt oneshot <q>` | Search → export → import | `-p`, `-f`, `-n`, `-y`, `--note` |
 | `ggt sql <query>` | Raw SQL | `--json` (SELECT/EXPLAIN/PRAGMA only) |
 
 All commands support `--json` for piping to `jq` or `python3`.
 Session IDs support prefix matching — use first 4-8 chars instead of the full UUID.
+Path flags (`--project`, `--from`, `--project-dir`) resolve `.` to the current directory.
+The DB auto-syncs when stale (>60s) — no manual sync needed.

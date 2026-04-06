@@ -13,7 +13,7 @@ description: >
 
 All commands are read-only and safe to run without user confirmation.
 
-**Important**: The database must be synced before querying. If results are empty or stale, tell the user to sync via the Gigity web UI sidebar button, or note that a sync may be needed.
+**Important**: The database auto-syncs when stale (>60s). If results seem outdated, run `ggt sync` to force a re-sync.
 
 ---
 
@@ -45,10 +45,12 @@ ggt sessions list [flags]
 | `--limit` | int | Max results (default 20) | `--limit=50` |
 | `--json` | bool | JSON array output | |
 
+All path flags (`--project`) resolve `.` to the current directory.
+
 Output per session:
 ```
-{id}  {created_at}  msgs={count}  tools={count}  {model}  {project_name}
-  "{first 80 chars of first prompt}"
+  {id_prefix_8}  {created_at}  {project_name}  {model}  msgs={count}  tools={count}
+         {first prompt text}
 ```
 
 ---
@@ -87,8 +89,50 @@ Content extraction covers: text blocks, thinking blocks, tool_use (name + input)
 
 ---
 
+### `ggt sync`
+Force a full re-sync of `~/.claude/` sessions into the SQLite database. Normally not needed — all read commands auto-sync when the DB is older than 60 seconds.
+```bash
+ggt sync
+```
+
+---
+
+### `ggt sessions export <id>`
+Export a session bundle for handoff to another machine.
+```bash
+ggt sessions export <id-or-prefix> [-o output-path]
+```
+
+The `.tar.gz` extension is added automatically. Bundles: JSONL transcript, subagents, tool results, file history, project memories, MCP configs (credentials redacted), skills, agents, hooks.
+
+---
+
+### `ggt sessions import <archive>`
+Import a session bundle. Rewrites paths, offers interactive env setup, appends a handoff message.
+```bash
+ggt sessions import <archive.tar.gz> --project-dir <path> [--yes] [--note "..."]
+```
+
+---
+
+### `ggt oneshot <query>`
+Search → export → import in one command. Finds a session by message content, exports it, and imports it into the target project.
+```bash
+ggt oneshot "<search-phrase>" -p <dest-project> [-f <source-project>] [-n <archive-name>] [-y]
+```
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `-p, --project` | string | **(required)** Destination project directory for import |
+| `-f, --from` | string | Project to search in (default: cwd) |
+| `-n, --name` | string | Archive filename without `.tar.gz` (default: `imported-session`) |
+| `-y, --yes` | bool | Accept all bundled env artifacts without prompting |
+| `--note` | string | Note to include in the handoff message |
+
+---
+
 ### `ggt messages search <query>`
-Search message content across sessions using keyword matching with BM25-inspired scoring.
+Search message content across sessions. Exact phrase matches rank first; individual terms are weighted by length (longer = more specific). Terms under 3 characters are skipped.
 ```bash
 ggt messages search "<query>" [flags]
 ```
@@ -101,12 +145,13 @@ ggt messages search "<query>" [flags]
 | `--limit` | int | Max results (default 10) |
 | `--json` | bool | JSON with score, session_id, msg_index |
 
-Parses every JSONL record in matching sessions, extracting text from all content blocks (text, thinking, tool_use names/inputs, tool_results). Returns snippets with ~80 chars before and ~200 chars after the first match.
+Extracts only human-readable text blocks (no tool inputs, no file paths, no JSON blobs). Returns snippets around the first match.
 
 **Search tips:**
-- Use distinctive terms: function names, error messages, library names, feature names — not generic words like "fix" or "change"
-- Multi-word queries match each word independently; all words contribute to the score
+- Exact phrase matches rank highest — paste the exact text you're looking for
+- Use distinctive terms: function names, error messages, library names — not generic words
 - `--type=user` finds what the user asked; `--type=assistant` finds what Claude answered
+- `--project=.` restricts search to the current working directory's project
 - Reads raw JSONL files, so it works even if FTS hasn't been synced
 
 ---
