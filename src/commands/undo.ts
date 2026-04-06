@@ -2,20 +2,21 @@ import { Args, Command, Flags } from "@oclif/core";
 import fs from "node:fs";
 import path from "node:path";
 import { ensureSynced } from "../lib/auto-sync.js";
+import { resolveSession } from "../lib/resolve-session.js";
 import { getFileSnapshots, readSnapshot } from "../lib/file-history.js";
 
 export default class Undo extends Command {
   static override description = "Restore files to their pre-session state using file-history snapshots";
 
   static override examples = [
-    "<%= config.bin %> undo abc123 --dry-run",
-    "<%= config.bin %> undo abc123",
+    "<%= config.bin %> undo --dry-run",
+    "<%= config.bin %> undo",
     "<%= config.bin %> undo abc123 --file=src/lib/db.ts",
-    "<%= config.bin %> undo abc123 --file=db.ts --dry-run",
+    "<%= config.bin %> undo --file=db.ts --dry-run",
   ];
 
   static override args = {
-    id: Args.string({ description: "Session ID (or prefix)", required: true }),
+    id: Args.string({ description: "Session ID or prefix (default: last session in current project)" }),
   };
 
   static override flags = {
@@ -29,22 +30,14 @@ export default class Undo extends Command {
     const db = await ensureSynced((msg) => this.log(msg));
     const dryRun = flags["dry-run"] ?? false;
 
-    // Find session
-    const session = db.prepare(`
-      SELECT s.id, s.jsonl_path, s.first_prompt, s.created_at,
-        p.original_path as project_path, p.name as project_name
-      FROM sessions s JOIN projects p ON s.project_id = p.id
-      WHERE s.id LIKE ?
-      ORDER BY s.created_at DESC LIMIT 1
-    `).get(`${args.id}%`) as Record<string, unknown> | undefined;
-
+    const session = resolveSession(db, args.id);
     if (!session) {
-      this.error(`Session not found: ${args.id}`);
+      this.error(args.id ? `Session not found: ${args.id}` : "No sessions found in current project.");
     }
 
-    const sessionId = session.id as string;
-    const jsonlPath = session.jsonl_path as string;
-    const projectPath = session.project_path as string;
+    const sessionId = session.id;
+    const jsonlPath = session.jsonl_path;
+    const projectPath = session.project_path;
 
     // Get all file snapshots
     const snapshots = await getFileSnapshots(sessionId, jsonlPath);

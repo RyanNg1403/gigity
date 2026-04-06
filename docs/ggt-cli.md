@@ -16,9 +16,10 @@ pnpm install && pnpm build && npm link
 Show history of a file across all sessions — every change, chronologically.
 
 ```bash
-ggt log src/lib/db.ts                     # Compact timeline
-ggt log src/lib/db.ts --patch             # With unified diffs
-ggt log src/lib/db.ts --explain=dab1f061  # Edit-by-edit motivations
+ggt log src/lib/db.ts                              # Compact timeline
+ggt log src/lib/db.ts --patch                      # With unified diffs
+ggt log src/lib/db.ts --explain                    # Motivations (last session)
+ggt log src/lib/db.ts --explain --session=dab1f061 # Motivations (specific session)
 ```
 
 `--explain` traces each edit back through the `parentUuid` chain to show the **user prompt** that triggered it and **Claude's intent** (the assistant text just before the edit).
@@ -26,18 +27,19 @@ ggt log src/lib/db.ts --explain=dab1f061  # Edit-by-edit motivations
 | Flag | Description |
 |------|-------------|
 | `-p, --patch` | Show unified diff for each session |
-| `--explain` | Show edit-by-edit motivations for a specific session (ID or prefix) |
+| `--explain` | Show edit-by-edit motivations (default: last session) |
+| `--session` | Session ID or prefix for `--explain` |
 | `--limit` | Max sessions (default: 20) |
 | `--json` | Output as JSON |
 
 ### `ggt diff <session-id>`
 
-Show file changes made in a session. Extracts every `Edit` and `Write` tool call, matches with results (rejected changes excluded), and presents as a unified diff.
+Show file changes made in a session. Defaults to the last session in the current project if no ID is given.
 
 ```bash
-ggt diff abc123                  # Full diff of all file changes
+ggt diff                         # Last session in current project
 ggt diff abc123 --stat           # Summary: files changed, lines +/-
-ggt diff abc123 --file=db.ts     # Filter to one file
+ggt diff --file=db.ts            # Filter to one file
 ggt diff abc123 --json           # Machine-readable output
 ```
 
@@ -65,13 +67,13 @@ ggt blame db.ts --limit=5 --json
 
 ### `ggt undo <session-id>`
 
-Restore files to their pre-session state using `~/.claude/file-history/` snapshots. Reads the earliest snapshot (original) for each file and writes it back to disk.
+Restore files to their pre-session state using `~/.claude/file-history/` snapshots. Defaults to the last session in the current project if no ID is given.
 
 ```bash
-ggt undo abc123 --dry-run            # Preview what would be restored
-ggt undo abc123                      # Restore all files to pre-session state
+ggt undo --dry-run                   # Preview (last session)
+ggt undo                             # Restore all files to pre-session state
 ggt undo abc123 --file=src/lib/db.ts # Restore a single file
-ggt undo abc123 --file=db.ts         # Substring match
+ggt undo --file=db.ts --dry-run      # Single file preview
 ```
 
 Files created during the session are deleted. Files that no longer exist are recreated. Use `--dry-run` to preview before applying.

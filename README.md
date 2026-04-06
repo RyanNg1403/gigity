@@ -39,7 +39,7 @@ The database is built automatically on first use. Every command syncs fresh data
 ```bash
 ggt log src/lib/db.ts                     # Compact timeline
 ggt log src/lib/db.ts --patch             # With unified diffs
-ggt log src/lib/db.ts --explain=dab1f061  # Why was each edit made?
+ggt log src/lib/db.ts --explain           # Why was each edit made? (last session)
 ```
 
 Shows every change to a file, chronologically. `--explain` traces each edit back to the **user prompt** that triggered it and **Claude's reasoning** — so you can understand not just *what* changed, but *why*.
@@ -47,9 +47,9 @@ Shows every change to a file, chronologically. `--explain` traces each edit back
 ### `ggt diff` — What did a session change?
 
 ```bash
-ggt diff abc123                # Net unified diff (first state → final state)
+ggt diff                       # Last session in current project
 ggt diff abc123 --stat         # Summary: files changed, lines +/-
-ggt diff abc123 --file=db.ts   # Filter to one file
+ggt diff --file=db.ts          # Filter to one file
 ```
 
 Uses `~/.claude/file-history/` snapshots to compute true net diffs — not per-edit noise.
@@ -66,9 +66,9 @@ Traces file modifications back to sessions — with timestamps, models, and the 
 ### `ggt undo` — Revert a session's changes
 
 ```bash
-ggt undo abc123 --dry-run            # Preview what would be restored
-ggt undo abc123                      # Restore all files to pre-session state
-ggt undo abc123 --file=db.ts         # Restore just one file
+ggt undo --dry-run                   # Preview (last session)
+ggt undo                             # Restore all files to pre-session state
+ggt undo abc123 --file=db.ts         # Specific session, one file
 ```
 
 Reads original file snapshots and writes them back. Files created during the session are deleted. Works without git.

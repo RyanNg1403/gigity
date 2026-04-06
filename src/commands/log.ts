@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { execSync } from "node:child_process";
 import { ensureSynced } from "../lib/auto-sync.js";
+import { resolveSession } from "../lib/resolve-session.js";
 import { parseJsonl } from "../lib/jsonl.js";
 import {
   getHistoryDir,
@@ -20,8 +21,8 @@ export default class Log extends Command {
   static override examples = [
     "<%= config.bin %> log src/lib/db.ts",
     "<%= config.bin %> log src/lib/db.ts --patch",
-    "<%= config.bin %> log src/lib/db.ts --explain=dab1f061",
-    "<%= config.bin %> log db.ts --json",
+    "<%= config.bin %> log src/lib/db.ts --explain",
+    "<%= config.bin %> log src/lib/db.ts --explain --session=dab1f061",
   ];
 
   static override args = {
@@ -30,7 +31,8 @@ export default class Log extends Command {
 
   static override flags = {
     patch: Flags.boolean({ description: "Show unified diff for each session", char: "p" }),
-    explain: Flags.string({ description: "Show edit-by-edit motivations for a specific session (ID or prefix)" }),
+    explain: Flags.boolean({ description: "Show edit-by-edit motivations (default: last session, or use --session)" }),
+    session: Flags.string({ description: "Session ID or prefix for --explain (default: last session in current project)" }),
     limit: Flags.integer({ description: "Max sessions", default: 20 }),
     json: Flags.boolean({ description: "Output as JSON" }),
   };
@@ -41,7 +43,11 @@ export default class Log extends Command {
 
     // If --explain, run the explain flow
     if (flags.explain) {
-      await this.runExplain(db, args.file, flags.explain);
+      const session = resolveSession(db, flags.session);
+      if (!session) {
+        this.error(flags.session ? `Session not found: ${flags.session}` : "No sessions found in current project.");
+      }
+      await this.runExplain(session, args.file);
       return;
     }
 
@@ -173,25 +179,12 @@ export default class Log extends Command {
       this.log("");
     }
 
-    this.log(`${entries.length} session${entries.length !== 1 ? "s" : ""}. Use --patch for diffs, --explain=<session-id> for motivations.`);
+    this.log(`${entries.length} session${entries.length !== 1 ? "s" : ""}. Use --patch for diffs, --explain for motivations.`);
   }
 
-  private async runExplain(db: import("better-sqlite3").Database, file: string, sessionPrefix: string) {
-    // Find the session
-    const session = db.prepare(`
-      SELECT s.id, s.jsonl_path, s.first_prompt, s.created_at, s.model_used,
-        p.original_path as project_path, p.name as project_name
-      FROM sessions s JOIN projects p ON s.project_id = p.id
-      WHERE s.id LIKE ?
-      ORDER BY s.created_at DESC LIMIT 1
-    `).get(`${sessionPrefix}%`) as Record<string, unknown> | undefined;
-
-    if (!session) {
-      this.error(`Session not found: ${sessionPrefix}`);
-    }
-
-    const sessionId = session.id as string;
-    const jsonlPath = session.jsonl_path as string;
+  private async runExplain(session: import("../lib/resolve-session.js").ResolvedSession, file: string) {
+    const sessionId = session.id;
+    const jsonlPath = session.jsonl_path;
 
     // Find all Edit/Write tool_uses for this file in this session
     interface EditEntry {
@@ -253,8 +246,8 @@ export default class Log extends Command {
 
     // Header
     const sid = sessionId.slice(0, 8);
-    const model = ((session.model_used as string) || "").replace("claude-", "");
-    this.log(`\x1b[1mExplain: ${file}\x1b[0m  session \x1b[33m${sid}\x1b[0m  ${(session.created_at as string).slice(0, 10)}  ${model}\n`);
+    const model = (session.model_used || "").replace("claude-", "");
+    this.log(`\x1b[1mExplain: ${file}\x1b[0m  session \x1b[33m${sid}\x1b[0m  ${session.created_at.slice(0, 10)}  ${model}\n`);
 
     for (let i = 0; i < edits.length; i++) {
       const edit = edits[i];
