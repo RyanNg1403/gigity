@@ -282,8 +282,17 @@ export default class Log extends Command {
 
       this.log(`\x1b[1m${i + 1}. ${edit.toolName}\x1b[0m  ${time}`);
 
-      // Show what changed
+      // Chronological: user prompt → claude reasoning → diff
+      if (ctx.userPrompt) {
+        this.log(`  \x1b[33mUser:\x1b[0m   ${ctx.userPrompt.replace(/\n/g, " ").slice(0, 200)}`);
+      }
+      if (ctx.claudeIntent) {
+        this.log(`  \x1b[36mClaude:\x1b[0m ${ctx.claudeIntent.replace(/\n/g, " ").slice(0, 200)}`);
+      }
+
+      // The resulting change
       if (edit.toolName === "Edit" && edit.oldString && edit.newString) {
+        this.log("");
         const oldLines = edit.oldString.split("\n").slice(0, 5);
         const newLines = edit.newString.split("\n").slice(0, 5);
         for (const l of oldLines) this.log(`  \x1b[31m-${l}\x1b[0m`);
@@ -291,16 +300,9 @@ export default class Log extends Command {
         for (const l of newLines) this.log(`  \x1b[32m+${l}\x1b[0m`);
         if (edit.newString.split("\n").length > 5) this.log(`  \x1b[2m  ... ${edit.newString.split("\n").length - 5} more lines\x1b[0m`);
       } else if (edit.toolName === "Write") {
+        this.log("");
         const lines = (edit.content || "").split("\n");
         this.log(`  \x1b[32m${lines.length} lines written\x1b[0m`);
-      }
-
-      // Show motivation
-      if (ctx.claudeIntent) {
-        this.log(`\n  \x1b[36mClaude:\x1b[0m ${ctx.claudeIntent.replace(/\n/g, " ").slice(0, 200)}`);
-      }
-      if (ctx.userPrompt) {
-        this.log(`  \x1b[33mUser:\x1b[0m   ${ctx.userPrompt.replace(/\n/g, " ").slice(0, 200)}`);
       }
 
       this.log("");
