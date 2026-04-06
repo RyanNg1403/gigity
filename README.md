@@ -14,7 +14,8 @@
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#commands">Commands</a> ·
-  <a href="docs/ggt-cli.md">Full Reference</a>
+  <a href="docs/ggt-cli.md">Full Reference</a> ·
+  <a href="skills/ggt/SKILL.md">Skill</a>
 </p>
 
 ---
