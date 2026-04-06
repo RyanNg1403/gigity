@@ -61,9 +61,25 @@ export default class Log extends Command {
       LIMIT ?
     `;
 
+    // Try exact resolved path first
     let rows = db.prepare(query).all(resolvedPath, flags.limit) as Record<string, unknown>[];
     if (rows.length === 0) {
-      rows = db.prepare(query).all(`%${args.file}%`, flags.limit) as Record<string, unknown>[];
+      // Substring fallback — scope to current project to avoid cross-project noise
+      const cwd = path.resolve(".");
+      const scopedQuery = `
+        SELECT DISTINCT tc.session_id, s.jsonl_path, s.created_at, s.model_used, s.first_prompt,
+          p.original_path as project_path, p.name as project_name
+        FROM tool_calls tc
+        JOIN sessions s ON tc.session_id = s.id
+        JOIN projects p ON s.project_id = p.id
+        WHERE tc.file_path IS NOT NULL
+          AND tc.tool_name IN ('Edit', 'Write')
+          AND tc.file_path LIKE ?
+          AND (p.original_path LIKE ? OR p.original_path = ?)
+        ORDER BY s.created_at ASC
+        LIMIT ?
+      `;
+      rows = db.prepare(scopedQuery).all(`%${args.file}%`, `%${cwd}%`, cwd, flags.limit) as Record<string, unknown>[];
     }
 
     if (rows.length === 0) {
