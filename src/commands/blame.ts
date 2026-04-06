@@ -26,13 +26,11 @@ export default class Blame extends Command {
     const db = await ensureSynced(60_000, (msg) => this.log(msg));
 
     // Resolve the file path for matching
-    // Try exact match first, then substring
     const resolvedPath = path.isAbsolute(args.file)
       ? args.file
       : path.resolve(args.file);
 
-    // Query: exact path first, fall back to substring
-    const rows = db.prepare(`
+    const query = `
       SELECT tc.file_path, tc.tool_name, tc.timestamp,
         s.id as session_id, s.first_prompt, s.created_at, s.model_used,
         p.original_path as project_path, p.name as project_name
@@ -41,10 +39,16 @@ export default class Blame extends Command {
       JOIN projects p ON s.project_id = p.id
       WHERE tc.file_path IS NOT NULL
         AND tc.tool_name IN ('Edit', 'Write')
-        AND (tc.file_path = ? OR tc.file_path LIKE ?)
+        AND tc.file_path LIKE ?
       ORDER BY tc.timestamp DESC
       LIMIT ?
-    `).all(resolvedPath, `%${args.file}%`, flags.limit) as Record<string, unknown>[];
+    `;
+
+    // Try exact match first, fall back to substring only if no results
+    let rows = db.prepare(query).all(resolvedPath, flags.limit) as Record<string, unknown>[];
+    if (rows.length === 0) {
+      rows = db.prepare(query).all(`%${args.file}%`, flags.limit) as Record<string, unknown>[];
+    }
 
     if (rows.length === 0) {
       this.log(`No sessions found that modified "${args.file}".`);
