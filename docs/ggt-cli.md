@@ -27,6 +27,7 @@ ggt log src/lib/db.ts --explain --session=dab1f061 # Motivations (specific sessi
 | Flag | Description |
 |------|-------------|
 | `--net` | Show net unified diff for each session |
+| `--grep` | Only show sessions where the diff contains this pattern (auto-shows diff) |
 | `--explain` | Show edit-by-edit motivations (default: last session) |
 | `--session` | Session ID or prefix for `--explain` |
 | `--limit` | Max sessions (default: 20) |
@@ -47,6 +48,7 @@ ggt diff abc123 --json           # Machine-readable output
 |------|-------------|
 | `--stat` | Show summary only (files changed, lines added/removed) |
 | `--file` | Filter to a specific file path (substring match) |
+| `--grep` | Only show diff hunks matching this pattern |
 | `--json` | Output as JSON |
 
 ### `ggt blame <file>`
@@ -55,13 +57,16 @@ Show which sessions modified a file. Supports absolute paths, relative paths, an
 
 ```bash
 ggt blame src/lib/db.ts          # Relative path (resolved from cwd)
+ggt blame src/lib/db.ts -L 40,50 # Which session wrote lines 40-50?
 ggt blame auth                   # Substring match across all files
-ggt blame /abs/path/file.ts      # Absolute path
 ggt blame db.ts --limit=5 --json
 ```
 
+`-L` reads the current file, extracts those lines, then walks sessions reverse-chronologically to find which one introduced that content — with user prompt and Claude's reasoning.
+
 | Flag | Description |
 |------|-------------|
+| `-L` | Line range (e.g. `40,50` or `42`). Traces who wrote those lines |
 | `--limit` | Max results (default: 20) |
 | `--json` | Output as JSON |
 

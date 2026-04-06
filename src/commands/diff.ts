@@ -1,7 +1,7 @@
 import { Args, Command, Flags } from "@oclif/core";
 import { ensureSynced } from "../lib/auto-sync.js";
 import { resolveSession } from "../lib/resolve-session.js";
-import { computeSessionDiff, formatStat } from "../lib/diff.js";
+import { computeSessionDiff, formatStat, grepDiffHunks } from "../lib/diff.js";
 
 export default class Diff extends Command {
   static override description = "Show net file changes in a session (first state → final state)";
@@ -10,6 +10,7 @@ export default class Diff extends Command {
     "<%= config.bin %> diff",
     "<%= config.bin %> diff abc123 --stat",
     "<%= config.bin %> diff --file=src/lib/db.ts",
+    "<%= config.bin %> diff --grep=initSchema",
     "<%= config.bin %> diff abc123 --json",
   ];
 
@@ -20,6 +21,7 @@ export default class Diff extends Command {
   static override flags = {
     stat: Flags.boolean({ description: "Show summary only (files changed, lines added/removed)" }),
     file: Flags.string({ description: "Filter to a specific file path (substring match)" }),
+    grep: Flags.string({ description: "Only show diff hunks matching this pattern" }),
     json: Flags.boolean({ description: "Output as JSON" }),
   };
 
@@ -43,10 +45,22 @@ export default class Diff extends Command {
       diffs = diffs.filter((d) =>
         d.filePath.toLowerCase().includes(flags.file!.toLowerCase()),
       );
-      if (diffs.length === 0) {
-        this.log(`No changes matching "${flags.file}" in this session.`);
-        return;
-      }
+    }
+
+    // --grep: filter to only hunks matching the pattern
+    if (flags.grep) {
+      diffs = diffs
+        .map((d) => {
+          const filtered = grepDiffHunks(d.diffText, flags.grep!);
+          if (!filtered) return null;
+          return { ...d, diffText: filtered };
+        })
+        .filter((d): d is NonNullable<typeof d> => d !== null);
+    }
+
+    if (diffs.length === 0) {
+      this.log(`No changes matching "${flags.grep || flags.file}" in this session.`);
+      return;
     }
 
     if (flags.json) {

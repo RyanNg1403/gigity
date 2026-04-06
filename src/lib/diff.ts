@@ -288,6 +288,63 @@ function formatNewFile(filePath: string, content: string): string {
   return lines.join("\n");
 }
 
+// ── Grep filtering ──────────────────────────────────────────────
+
+/**
+ * Filter a colored unified diff to only include hunks matching a pattern.
+ * Returns null if no hunks match.
+ */
+export function grepDiffHunks(diffText: string, pattern: string): string | null {
+  const patternLower = pattern.toLowerCase();
+  const lines = diffText.split("\n");
+  const header: string[] = []; // --- and +++ lines
+  const hunks: string[][] = [];
+  let currentHunk: string[] = [];
+
+  for (const line of lines) {
+    // Strip ANSI codes for matching
+    const plain = line.replace(/\x1b\[[0-9;]*m/g, "").trimStart();
+
+    if (plain.startsWith("--- ") || plain.startsWith("+++ ")) {
+      header.push(line);
+    } else if (plain.startsWith("@@")) {
+      if (currentHunk.length > 0) hunks.push(currentHunk);
+      currentHunk = [line];
+    } else if (currentHunk.length > 0) {
+      currentHunk.push(line);
+    }
+  }
+  if (currentHunk.length > 0) hunks.push(currentHunk);
+
+  // Keep only hunks where any changed line matches the pattern
+  const matched = hunks.filter((hunk) =>
+    hunk.some((line) => {
+      const plain = line.replace(/\x1b\[[0-9;]*m/g, "").trimStart();
+      return (plain.startsWith("+") || plain.startsWith("-")) &&
+        plain.toLowerCase().includes(patternLower);
+    }),
+  );
+
+  if (matched.length === 0) return null;
+
+  return [...header, ...matched.flatMap((h) => h)].join("\n");
+}
+
+/**
+ * Check if a diff (colored or raw) contains any changed lines matching a pattern.
+ */
+export function diffMatchesGrep(diffText: string, pattern: string): boolean {
+  const patternLower = pattern.toLowerCase();
+  for (const line of diffText.split("\n")) {
+    const plain = line.replace(/\x1b\[[0-9;]*m/g, "").trimStart();
+    if ((plain.startsWith("+") || plain.startsWith("-")) &&
+      plain.toLowerCase().includes(patternLower)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ── Rejected change counter ─────────────────────────────────────
 
 async function countRejectedChanges(jsonlPath: string): Promise<number> {

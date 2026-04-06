@@ -5,6 +5,7 @@ import os from "node:os";
 import { execSync } from "node:child_process";
 import { ensureSynced } from "../lib/auto-sync.js";
 import { resolveSession } from "../lib/resolve-session.js";
+import { diffMatchesGrep } from "../lib/diff.js";
 import { parseJsonl } from "../lib/jsonl.js";
 import {
   getHistoryDir,
@@ -31,6 +32,7 @@ export default class Log extends Command {
 
   static override flags = {
     net: Flags.boolean({ description: "Show net unified diff for each session" }),
+    grep: Flags.string({ description: "Only show sessions where the diff matches this pattern" }),
     explain: Flags.boolean({ description: "Show edit-by-edit motivations (default: last session, or use --session)" }),
     session: Flags.string({ description: "Session ID or prefix for --explain (default: last session in current project)" }),
     limit: Flags.integer({ description: "Max sessions", default: 20 }),
@@ -136,6 +138,9 @@ export default class Log extends Command {
 
         const { added, removed, text } = computeDiff(oldContent, newContent, filePath);
 
+        // --grep: skip sessions where the diff doesn't match
+        if (flags.grep && !diffMatchesGrep(text, flags.grep)) continue;
+
         entries.push({
           sessionId,
           date: ((row.created_at as string) || "").slice(0, 10),
@@ -145,7 +150,7 @@ export default class Log extends Command {
           linesAdded: added,
           linesRemoved: removed,
           isNew: false,
-          diffText: flags.net ? text : undefined,
+          diffText: (flags.net || flags.grep) ? text : undefined,
         });
         break; // one match per session
       }
