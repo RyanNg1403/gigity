@@ -33,17 +33,17 @@ function searchSessions(
   const queryLower = query.toLowerCase();
   const queryTerms = queryLower.split(/\s+/).filter(Boolean);
 
-  let sessions: { id: string; jsonl_path: string; modified_at: string; project_name: string }[];
+  let sessions: { id: string; jsonl_path: string; modified_at: string; project_path: string }[];
 
   if (projectFilter === null) {
     sessions = db.prepare(`
-      SELECT s.id, s.jsonl_path, s.modified_at, p.name as project_name
+      SELECT s.id, s.jsonl_path, s.modified_at, p.original_path as project_path
       FROM sessions s JOIN projects p ON s.project_id = p.id
       ORDER BY s.modified_at DESC
     `).all() as typeof sessions;
   } else {
     sessions = db.prepare(`
-      SELECT s.id, s.jsonl_path, s.modified_at, p.name as project_name
+      SELECT s.id, s.jsonl_path, s.modified_at, p.original_path as project_path
       FROM sessions s JOIN projects p ON s.project_id = p.id
       WHERE p.original_path LIKE ? OR p.name LIKE ?
       ORDER BY s.modified_at DESC
@@ -84,7 +84,7 @@ function searchSessions(
         if (score > 0) {
           const existing = bestBySession.get(sess.id);
           if (!existing || score > existing.score) {
-            bestBySession.set(sess.id, { score, modified_at: sess.modified_at, project: sess.project_name });
+            bestBySession.set(sess.id, { score, modified_at: sess.modified_at, project: sess.project_path });
           }
           break;
         }
