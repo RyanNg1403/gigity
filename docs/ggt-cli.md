@@ -1,6 +1,6 @@
 # ggt CLI Reference
 
-`ggt` is Gigity's command-line interface for querying Claude Code session data from the terminal. It reads from the same SQLite database (`~/.claude/gigity.db`) as the web UI.
+`ggt` is the Gigity command-line interface for querying Claude Code session data. It indexes `~/.claude/` into a local SQLite database (`~/.claude/gigity.db`) and auto-syncs when the DB is older than 60 seconds.
 
 ## Installation
 
@@ -9,13 +9,17 @@ cd gigity
 pnpm install && pnpm build
 ```
 
-This builds the CLI and globally links the `ggt` command. You can also build and link separately:
-
-```bash
-pnpm cli:build && pnpm cli:link
-```
+This builds the CLI and globally links the `ggt` command.
 
 ## Commands
+
+### `ggt sync`
+
+Force a full re-sync of `~/.claude/` into the database. Normally not needed — all commands auto-sync when stale.
+
+```bash
+ggt sync
+```
 
 ### `ggt sessions list`
 
@@ -23,6 +27,7 @@ List sessions with optional filters.
 
 ```bash
 ggt sessions list                                # Recent 20 sessions
+ggt sessions list --project=.                    # Current project only
 ggt sessions list --project=gigity --limit=10    # Filter by project
 ggt sessions list --model=opus --after=2026-03-01
 ggt sessions list --branch=main --json           # JSON output for piping
@@ -30,7 +35,7 @@ ggt sessions list --branch=main --json           # JSON output for piping
 
 | Flag | Description |
 |------|-------------|
-| `--project` | Filter by project path or name (substring match) |
+| `--project` | Filter by project path or name (substring match, `.` = cwd) |
 | `--model` | Filter by model name (substring match) |
 | `--after` | Sessions created after this date (YYYY-MM-DD) |
 | `--before` | Sessions created before this date (YYYY-MM-DD) |
@@ -49,24 +54,15 @@ ggt sessions show f81f --json      # JSON output
 
 ### `ggt sessions export <session-id>`
 
-Export a session as a portable `.tar.gz` bundle for another machine.
+Export a session as a portable `.tar.gz` bundle for another machine. The `.tar.gz` extension is added automatically if missing.
 
 ```bash
 ggt sessions export abc123
-ggt sessions export abc123 -o ~/Desktop/handoff.tar.gz
-ggt sessions export abc123 --no-file-history    # Smaller bundle
+ggt sessions export abc123 -o handoff            # → handoff.tar.gz
+ggt sessions export abc123 --no-file-history     # Smaller bundle
 ```
 
-The bundle includes:
-- Session JSONL (full conversation transcript)
-- Subagent transcripts and metadata
-- Tool result cache
-- File history snapshots
-- Project memories (MEMORY.md + files)
-- Sessions index entry
-- Task files (if any)
-- Environment artifacts (MCP configs with credentials redacted, skill files, agent definitions)
-- Manifest with export metadata, detected requirements, and bundled environment list
+See [session-export-import.md](session-export-import.md) for full details on what's bundled.
 
 | Flag | Description |
 |------|-------------|
@@ -79,31 +75,36 @@ The bundle includes:
 Import a session bundle exported from another machine.
 
 ```bash
-ggt sessions import bundle.tar.gz --project-dir /Users/Team/workspace/gigity
-ggt sessions import bundle.tar.gz --project-dir . --note "Focus on the auth refactor"
-ggt sessions import bundle.tar.gz --project-dir /path --dry-run
-ggt sessions import bundle.tar.gz --project-dir . --yes  # Accept all env artifacts
+ggt sessions import bundle.tar.gz --project-dir /path/to/project
+ggt sessions import bundle.tar.gz --project-dir . --note "Focus on auth"
+ggt sessions import bundle.tar.gz --project-dir . --yes    # Accept all
 ```
 
-On import:
-1. **Interactive environment setup**: Prompts to install bundled MCP server configs, skills, and agent definitions (use `--yes` to auto-accept)
-2. All absolute paths in JSONL, subagent transcripts, tool results, and index are rewritten from the source machine's paths to the target machine's paths
-3. The project folder under `~/.claude/projects/` is re-encoded for the target path
-4. A synthetic handoff message is appended to the JSONL, reflecting what was installed and what was declined
-5. Memories are merged (existing files are not overwritten)
-6. Sessions index is merged (no duplicate entries)
+See [session-export-import.md](session-export-import.md) for full details on the import process.
 
-After import, resume with:
+| Flag | Description |
+|------|-------------|
+| `--project-dir` | **(required)** Path to the project on this machine |
+| `--note` | Optional note included in the handoff message |
+| `--dry-run` | Show what would be done without writing files |
+| `-y, --yes` | Accept all bundled environment artifacts without prompting |
+
+### `ggt oneshot <query>`
+
+Search for a message, export its session, and import it into a project — all in one command.
+
 ```bash
-cd /path/to/project && claude --resume <session-id>
+ggt oneshot "fix the auth bug" -p ../my-app
+ggt oneshot "database migration" -p . -f other-project -n migration-handoff
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--project-dir` | **(required)** Absolute path to the project on this machine |
-| `--note` | Optional note included in the handoff message |
-| `--dry-run` | Show what would be done without writing files |
-| `-y, --yes` | Accept all bundled environment artifacts without prompting |
+| `-p, --project` | **(required)** Destination project directory for import |
+| `-f, --from` | Project to search in (default: cwd) |
+| `-n, --name` | Archive filename without `.tar.gz` (default: `imported-session`) |
+| `-y, --yes` | Accept all bundled env artifacts without prompting |
+| `--note` | Note to include in the handoff message |
 
 ### `ggt messages list <session-id>`
 
@@ -125,18 +126,20 @@ ggt messages list f81f --json
 
 ### `ggt messages search <query>`
 
-Search across all session messages.
+Search across all session messages. Exact phrase matches rank first; terms under 3 characters are skipped.
 
 ```bash
 ggt messages search "authentication"
-ggt messages search "bug fix" --project=my-app
-ggt messages search "API endpoint" --json
+ggt messages search "bug fix" --project=.        # Current project
+ggt messages search "API endpoint" --type=user   # User messages only
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--project` | Filter by project |
-| `--limit` | Max results (default: 20) |
+| `--project` | Filter by project (`.` = cwd) |
+| `--session` | Search within one session (prefix) |
+| `--type` | Filter by message type (`user`, `assistant`) |
+| `--limit` | Max results (default: 10) |
 | `--json` | Output as JSON |
 
 ### `ggt projects list`
@@ -150,15 +153,20 @@ ggt projects list --json
 
 ### `ggt sql <query>`
 
-Run a raw SQL query against the Gigity database (read-only).
+Run a raw SQL query against the database (read-only).
 
 ```bash
 ggt sql "SELECT COUNT(*) FROM sessions"
 ggt sql "SELECT model_used, COUNT(*) as c FROM sessions GROUP BY model_used ORDER BY c DESC"
-ggt sql "SELECT * FROM session_metrics ORDER BY overall_score DESC LIMIT 10"
 ```
 
 All commands support `--json` for piping to `jq` or other tools.
+
+## Notes
+
+- All path flags (`--project`, `--from`, `--project-dir`) resolve `.` to the current directory
+- Session IDs support prefix matching — use first 4-8 chars instead of the full UUID
+- The database auto-syncs when stale (>60s); use `ggt sync` to force it
 
 ## Database Schema
 
@@ -171,7 +179,7 @@ The SQLite database at `~/.claude/gigity.db` contains:
 | `messages` | Individual messages with token usage |
 | `tool_calls` | Tool call records linked to messages |
 | `sessions_fts` | FTS5 full-text search index |
-| `session_turns` | Turn-by-turn breakdown for effectiveness scoring |
+| `session_turns` | Turn-by-turn breakdown |
 | `session_metrics` | Computed effectiveness scores per session |
 | `turn_events` | Turn-level events (success, correction, interruption, error loop) |
 | `daily_stats` | Aggregated daily activity from stats-cache |
