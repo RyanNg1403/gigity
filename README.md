@@ -19,6 +19,10 @@
 
 ---
 
+The name started as a joke — Quagmire's catchphrase. Then I noticed *git* was hiding in *gigity* all along, and the tool I was building turned out to be exactly that: `git diff`, `git blame`, and `git log` — but for what the AI did to your codebase. Claude Code records everything in `~/.claude/`, yet there was no way to inspect, search, or undo any of it. ggt fills that gap.
+
+---
+
 ## Install
 
 ```bash
