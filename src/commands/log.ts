@@ -249,6 +249,32 @@ export default class Log extends Command {
     const model = (session.model_used || "").replace("claude-", "");
     this.log(`\x1b[1mExplain: ${file}\x1b[0m  session \x1b[33m${sid}\x1b[0m  ${session.created_at.slice(0, 10)}  ${model}\n`);
 
+    // Net diff from file-history (if available)
+    const historyDir = getHistoryDir(sessionId);
+    if (fs.existsSync(historyDir)) {
+      const hashToPath = await buildHashToPathMap(jsonlPath);
+      const versionGroups = scanFileHistory(historyDir);
+      for (const [hash, versions] of versionGroups) {
+        const fp = hashToPath.get(hash);
+        if (!fp || !fp.toLowerCase().includes(file.toLowerCase())) continue;
+        versions.sort((a, b) => a - b);
+        if (versions.length < 2) continue;
+        const oldContent = readSnapshot(historyDir, hash, versions[0]);
+        const newContent = readSnapshot(historyDir, hash, versions[versions.length - 1]);
+        if (oldContent && newContent && oldContent !== newContent) {
+          const { text, added, removed } = computeDiff(oldContent, newContent, fp);
+          if (text) {
+            this.log(`\x1b[2mNet diff (\x1b[32m+${added}\x1b[2m/\x1b[31m-${removed}\x1b[2m):\x1b[0m`);
+            this.log(text);
+            this.log("");
+          }
+        }
+        break;
+      }
+    }
+
+    this.log(`\x1b[2m── Edit-by-edit breakdown ──\x1b[0m\n`);
+
     for (let i = 0; i < edits.length; i++) {
       const edit = edits[i];
       const ctx = traceEditContext(uuidMap, edit.uuid);
