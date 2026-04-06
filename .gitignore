@@ -1,7 +1,8 @@
 # dependencies
 /node_modules
-cli/node_modules
-cli/dist
+
+# build output
+/dist
 
 # misc
 .DS_Store

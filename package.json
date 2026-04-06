@@ -1,13 +1,34 @@
 {
-  "name": "gigity",
+  "name": "gigity-cli",
   "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "install": "cd cli && pnpm install",
-    "build": "cd cli && pnpm install && pnpm build && npm link",
-    "cli:build": "cd cli && pnpm install && pnpm build",
-    "cli:link": "cd cli && npm link"
+  "description": "CLI for querying, exporting, and transferring Claude Code sessions",
+  "type": "module",
+  "bin": {
+    "ggt": "./bin/run.js"
   },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "link": "npm link"
+  },
+  "oclif": {
+    "bin": "ggt",
+    "commands": "./dist/commands",
+    "topicSeparator": " "
+  },
+  "dependencies": {
+    "@oclif/core": "^4",
+    "better-sqlite3": "^11"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7",
+    "@types/node": "^22",
+    "typescript": "^5"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3"

@@ -4,7 +4,7 @@ A CLI for querying, searching, exporting, and transferring Claude Code sessions 
 
 ## Tech Stack
 
-- **CLI**: oclif + TypeScript (`ggt` command, lives in `cli/`)
+- **CLI**: oclif + TypeScript (`ggt` command)
 - **Database**: SQLite via better-sqlite3 (`~/.claude/gigity.db`)
 - **Package manager**: pnpm
 

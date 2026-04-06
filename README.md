@@ -14,7 +14,7 @@
 
 ```bash
 git clone https://github.com/RyanNg1403/gigity.git
-cd gigity && pnpm install && pnpm build
+cd gigity && pnpm install && pnpm build && npm link
 ```
 
 No manual sync needed — the database is built automatically on first use.
