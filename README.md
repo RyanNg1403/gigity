@@ -1,12 +1,20 @@
-# ggt — git for AI coding sessions
+<p align="center">
+  <img src="logo.png" alt="ggt" width="160" />
+</p>
+
+<h1 align="center">ggt</h1>
 
 <p align="center">
-  <img src="logo.png" alt="Gigity" width="180" />
+  <strong>git for AI coding sessions</strong><br>
+  <code>diff</code> · <code>blame</code> · <code>undo</code> · <code>cost</code> · <code>export</code><br><br>
+  <a href="https://claude.com/claude-code">Claude Code</a> stores every session as structured data.<br>
+  <code>ggt</code> makes it queryable.
 </p>
 
 <p align="center">
-  Track, search, diff, and transfer <a href="https://claude.com/claude-code">Claude Code</a> sessions.<br>
-  Like <code>git log</code>, <code>git diff</code>, and <code>git blame</code> — but for what the AI did.
+  <a href="#install">Install</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="docs/ggt-cli.md">Full Reference</a>
 </p>
 
 ---
@@ -18,72 +26,103 @@ git clone https://github.com/RyanNg1403/gigity.git
 cd gigity && pnpm install && pnpm build && npm link
 ```
 
-No manual sync needed — the database is built automatically on first use.
+The database is built automatically on first use. Every command syncs fresh data.
 
-## What did that session change?
+## Commands
 
-```bash
-ggt diff abc123              # Unified diff of all file changes
-ggt diff abc123 --stat       # Summary: files changed, lines added/removed
-ggt diff abc123 --file=db.ts # Filter to one file
-```
-
-Every `Edit` and `Write` tool call is extracted from the session transcript, matched with its result (rejected changes are excluded), and presented as a diff.
-
-## Who changed this file?
+### `ggt diff` — What did a session change?
 
 ```bash
-ggt blame src/lib/db.ts         # Which sessions modified this file
-ggt blame auth                  # Substring match across all file paths
-ggt blame ./src/lib/db.ts --json
+ggt diff abc123                # Net unified diff (first state → final state)
+ggt diff abc123 --stat         # Summary: files changed, lines +/-
+ggt diff abc123 --file=db.ts   # Filter to one file
 ```
 
-Traces file modifications back to the sessions that made them — with timestamps, models, and the prompt that started each session.
+Uses `~/.claude/file-history/` snapshots to compute true net diffs — not per-edit noise.
 
-## Undo a session's changes
+### `ggt blame` — Who changed this file?
+
+```bash
+ggt blame src/lib/db.ts        # Which sessions modified this file
+ggt blame auth                 # Substring match across all paths
+```
+
+Traces file modifications back to sessions — with timestamps, models, and the prompt that started each one.
+
+### `ggt undo` — Revert a session's changes
 
 ```bash
 ggt undo abc123 --dry-run            # Preview what would be restored
 ggt undo abc123                      # Restore all files to pre-session state
-ggt undo abc123 --file=src/lib/db.ts # Restore a single file
+ggt undo abc123 --file=db.ts         # Restore just one file
 ```
 
-Reads the original file snapshots from `~/.claude/file-history/` and writes them back. Files created during the session are deleted. Works even without git.
+Reads original file snapshots and writes them back. Files created during the session are deleted. Works without git.
 
-## Transfer sessions between machines
+### `ggt cost` — How much am I spending?
 
 ```bash
-# Oneshot: search → export → import in one command
+ggt cost                             # Current project
+ggt cost --all --by=project          # Per-project breakdown
+ggt cost --by=day --after=2026-04-01 # Daily trend
+ggt cost --by=model                  # Model breakdown
+```
+
+Maps token usage to Anthropic API pricing. Covers the full Claude model family.
+
+### `ggt find` — Get a session ID fast
+
+```bash
+ggt find "fix the auth bug"          # Best match in current project
+ggt find "migration" --all --limit=5 # Search everywhere
+ggt diff $(ggt find "auth" | awk '{print $1}')
+```
+
+Search by message content, get back session IDs ready to pipe into `diff`, `blame`, or `undo`.
+
+### `ggt oneshot` — Search, export, import in one step
+
+```bash
 ggt oneshot "fix the auth bug" -p ../my-app
-
-# Or step by step
-ggt sessions export abc123 -o handoff
-ggt sessions import handoff.tar.gz --project-dir /path/to/project
 ```
 
-The `.tar.gz` bundle includes the full conversation, subagents, tool results, file history, project memories, and **environment dependencies** (MCP configs with redacted credentials, skills, agents, hooks). Only artifacts actually used in the session are bundled.
+Finds a session by what you said in it, exports the bundle, and imports it into another project. The `.tar.gz` includes the full conversation, file history, memories, and environment dependencies (MCP configs, skills, agents, hooks — credentials redacted).
 
-The recipient chooses what to install interactively, or uses `--yes` to accept all. After import, `claude --resume` picks up exactly where you left off.
+After import, `claude --resume` picks up exactly where you left off.
 
-See [docs/session-export-import.md](docs/session-export-import.md) for the full guide.
-
-## Browse and search
+### More
 
 ```bash
-ggt sessions list --project=.          # Sessions in current project
+ggt sessions list --project=.          # Browse sessions
 ggt sessions show f81f                 # Session details + cost
-ggt messages search "auth bug" --project=.
-ggt sql "SELECT COUNT(*) FROM sessions"
+ggt sessions export abc123 -o handoff  # Export a session bundle
+ggt sessions import bundle.tar.gz --project-dir .
+ggt messages search "auth" --project=. # Search message content
+ggt messages list f81f --type=user     # Read messages
+ggt projects list                      # All indexed projects
+ggt sql "SELECT COUNT(*) FROM sessions" # Raw SQL
+ggt sync                               # Force re-sync
 ```
 
-All path flags resolve `.` to the current directory. The database auto-syncs when stale (>60s).
+See [docs/ggt-cli.md](docs/ggt-cli.md) for the full CLI reference with all flags.
 
-See [docs/ggt-cli.md](docs/ggt-cli.md) for the full CLI reference.
+---
 
-## Privacy
-
-Everything runs locally. No telemetry, no external requests.
-
-## License
-
-MIT
+<table>
+<tr>
+<td><strong>Data source</strong></td>
+<td><code>~/.claude/</code> — session transcripts, file history, memories, configs</td>
+</tr>
+<tr>
+<td><strong>Storage</strong></td>
+<td>SQLite at <code>~/.claude/gigity.db</code>, auto-synced on every command</td>
+</tr>
+<tr>
+<td><strong>Privacy</strong></td>
+<td>Everything runs locally. No telemetry, no external requests.</td>
+</tr>
+<tr>
+<td><strong>License</strong></td>
+<td>MIT</td>
+</tr>
+</table>
