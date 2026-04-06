@@ -40,6 +40,16 @@ ggt blame ./src/lib/db.ts --json
 
 Traces file modifications back to the sessions that made them — with timestamps, models, and the prompt that started each session.
 
+## Undo a session's changes
+
+```bash
+ggt undo abc123 --dry-run            # Preview what would be restored
+ggt undo abc123                      # Restore all files to pre-session state
+ggt undo abc123 --file=src/lib/db.ts # Restore a single file
+```
+
+Reads the original file snapshots from `~/.claude/file-history/` and writes them back. Files created during the session are deleted. Works even without git.
+
 ## Transfer sessions between machines
 
 ```bash

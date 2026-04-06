@@ -3,8 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { execSync } from "node:child_process";
 import { parseJsonl } from "./jsonl.js";
-
-const FILE_HISTORY_DIR = path.join(os.homedir(), ".claude", "file-history");
+import { getHistoryDir, buildHashToPathMap, scanFileHistory } from "./file-history.js";
 
 // ── Public types ────────────────────────────────────────────────
 
@@ -27,7 +26,7 @@ export async function computeSessionDiff(
   sessionId: string,
   jsonlPath: string,
 ): Promise<SessionDiffResult> {
-  const historyDir = path.join(FILE_HISTORY_DIR, sessionId);
+  const historyDir = getHistoryDir(sessionId);
   const rejected = await countRejectedChanges(jsonlPath);
 
   // Step 1: Net diffs from file-history (existing files edited 2+ times)
@@ -69,46 +68,6 @@ export async function computeSessionDiff(
   }
 
   return { diffs, rejected };
-}
-
-// ── File-history: hash→path mapping ─────────────────────────────
-
-async function buildHashToPathMap(jsonlPath: string): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-
-  for await (const record of parseJsonl(jsonlPath)) {
-    if (record.type !== "file-history-snapshot") continue;
-    const snapshot = record.snapshot as
-      | { trackedFileBackups?: Record<string, { backupFileName: string | null }> }
-      | undefined;
-    if (!snapshot?.trackedFileBackups) continue;
-
-    for (const [filePath, info] of Object.entries(snapshot.trackedFileBackups)) {
-      if (info.backupFileName) {
-        const hash = info.backupFileName.split("@v")[0];
-        if (!map.has(hash)) map.set(hash, filePath);
-      }
-    }
-  }
-
-  return map;
-}
-
-/** Scan file-history directory, group actual files on disk by hash */
-function scanFileHistory(historyDir: string): Map<string, number[]> {
-  const groups = new Map<string, number[]>();
-
-  for (const file of fs.readdirSync(historyDir)) {
-    const match = file.match(/^([a-f0-9]+)@v(\d+)$/);
-    if (!match) continue;
-    const [, hash, vStr] = match;
-    const version = parseInt(vStr, 10);
-    const arr = groups.get(hash) || [];
-    arr.push(version);
-    groups.set(hash, arr);
-  }
-
-  return groups;
 }
 
 // ── New file detection from Write tool calls ────────────────────

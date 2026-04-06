@@ -1,6 +1,6 @@
 # ggt CLI Reference
 
-`ggt` is git for AI coding sessions. It indexes `~/.claude/` into a local SQLite database (`~/.claude/gigity.db`) and provides `diff`, `blame`, search, and session transfer commands. Auto-syncs when the DB is older than 60 seconds.
+`ggt` is git for AI coding sessions. It indexes `~/.claude/` into a local SQLite database (`~/.claude/gigity.db`) and provides `diff`, `blame`, `undo`, search, and session transfer commands. Auto-syncs when the DB is older than 60 seconds.
 
 ## Installation
 
@@ -42,6 +42,43 @@ ggt blame db.ts --limit=5 --json
 | Flag | Description |
 |------|-------------|
 | `--limit` | Max results (default: 20) |
+| `--json` | Output as JSON |
+
+### `ggt undo <session-id>`
+
+Restore files to their pre-session state using `~/.claude/file-history/` snapshots. Reads the earliest snapshot (original) for each file and writes it back to disk.
+
+```bash
+ggt undo abc123 --dry-run            # Preview what would be restored
+ggt undo abc123                      # Restore all files to pre-session state
+ggt undo abc123 --file=src/lib/db.ts # Restore a single file
+ggt undo abc123 --file=db.ts         # Substring match
+```
+
+Files created during the session are deleted. Files that no longer exist are recreated. Use `--dry-run` to preview before applying.
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Show what would be restored without writing |
+| `--file` | Restore a specific file only (substring match) |
+| `--json` | Output as JSON |
+
+### `ggt find <query>`
+
+Find session IDs by searching message content. Scopes to the current project by default. Returns session ID, last active timestamp, and project — designed for piping.
+
+```bash
+ggt find "fix the auth bug"             # Best match in current project
+ggt find "database migration" --limit=5 # Top 5 matches
+ggt find "refactor" --all               # Search all projects
+ggt diff $(ggt find "auth bug" | awk '{print $1}')  # Pipe into diff
+```
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Search all projects (default: current project only) |
+| `--project` | Filter by a specific project (substring match) |
+| `--limit` | Max sessions to return (default: 1) |
 | `--json` | Output as JSON |
 
 ### `ggt sync`

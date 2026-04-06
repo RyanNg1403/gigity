@@ -28,3 +28,20 @@ export async function ensureSynced(
   }
   return getDb();
 }
+
+/** Force a sync regardless of staleness. Returns a readonly DB handle. */
+export async function forceSync(
+  log?: (msg: string) => void,
+): Promise<Database.Database> {
+  const db = getWritableDb();
+  const result = await syncAll(db);
+  if (log) {
+    log(
+      `Synced: ${result.sessionsIndexed} session${result.sessionsIndexed > 1 ? "s" : ""} indexed (${result.durationMs}ms)`
+    );
+  }
+  _synced = true;
+  db.close();
+  resetDb();
+  return getDb();
+}
