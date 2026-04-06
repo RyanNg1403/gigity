@@ -25,12 +25,14 @@ All commands auto-sync fresh data and are read-only (except `undo`). Session IDs
 **Dangerous (context-blowing):**
 - `ggt diff` on a large session with no filters — can dump hundreds of lines
 - `ggt log <file> --net` on a frequently edited file — full diffs for every session
-- `ggt log <file> --explain` without `--session` — defaults to last session which may not be relevant
+- `ggt log <file> --explain` with no `--grep` or `-L` — dumps every edit in the session
 
 **Safe (token-efficient):**
 - `ggt diff --stat` → `ggt diff --grep=functionName` → `ggt diff --file=path`
 - `ggt blame file -L 40,50` → one answer, minimal output
 - `ggt log file` (compact) → `ggt log file --grep=term` → `ggt log file --explain --session=X`
+- `ggt log file --explain --grep=fn` → only edits touching `fn`, skips the rest
+- `ggt log file --explain -L 40,50` → only edits affecting those lines
 
 ---
 
@@ -54,6 +56,8 @@ ggt blame src/lib/db.ts -L 40,50
 ggt log src/lib/db.ts                     # compact timeline (safe)
 ggt log src/lib/db.ts --grep=initSchema   # only sessions that touched initSchema
 ggt log src/lib/db.ts --explain --session=abc123  # specific session motivations
+ggt log src/lib/db.ts --explain --grep=initSchema # only edits touching initSchema
+ggt log src/lib/db.ts --explain -L 40,50  # only edits affecting lines 40-50
 
 # Revert
 ggt undo --dry-run                        # preview first

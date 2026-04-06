@@ -56,14 +56,17 @@ ggt log src/lib/db.ts --net                        # with net unified diffs
 ggt log src/lib/db.ts --grep=CREATE                # only sessions where diff matches
 ggt log src/lib/db.ts --explain                    # motivations (last session)
 ggt log src/lib/db.ts --explain --session=abc123   # motivations (specific session)
+ggt log src/lib/db.ts --explain --grep=initSchema  # only edits touching initSchema
+ggt log src/lib/db.ts --explain -L 40,50           # only edits affecting lines 40-50
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--net` | Show net unified diff for each session |
-| `--grep` | Only show sessions where the diff contains this pattern (auto-shows diff) |
+| `--grep` | Filter by pattern. In compact/net mode: filters sessions. In `--explain` mode: filters individual edits |
 | `--explain` | Edit-by-edit breakdown with user prompt + Claude intent (default: last session) |
 | `--session` | Session ID or prefix for `--explain` |
+| `-L` | Line range for `--explain` (e.g. `40,50` or `42`). Only show edits affecting those lines |
 | `--limit` | Max sessions (default: 20) |
 | `--json` | JSON output |
 
@@ -75,6 +78,15 @@ For each edit in the session:
 3. **Diff** — the old_string → new_string change
 
 Net diff is shown at the top, followed by the edit-by-edit breakdown.
+
+### `--explain` filtering
+
+`--grep` and `-L` both narrow which edits are shown, preventing context blowup on sessions with many edits:
+
+- **`--grep=pattern`** — only edits where `old_string` or `new_string` contains the pattern. Also filters net diff hunks.
+- **`-L start,end`** — reads the file at those lines, then only shows edits whose `old_string`/`new_string` contains significant content (>4 chars) from those lines. Shows the target lines at the top for context.
+
+Both can be combined. Output shows `(N/M edits)` so you know how many were filtered.
 
 ---
 

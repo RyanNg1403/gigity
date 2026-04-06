@@ -5,7 +5,7 @@ import os from "node:os";
 import { execSync } from "node:child_process";
 import { ensureSynced } from "../lib/auto-sync.js";
 import { resolveSession } from "../lib/resolve-session.js";
-import { diffMatchesGrep } from "../lib/diff.js";
+import { diffMatchesGrep, grepDiffHunks } from "../lib/diff.js";
 import { parseJsonl } from "../lib/jsonl.js";
 import {
   getHistoryDir,
@@ -36,6 +36,7 @@ export default class Log extends Command {
     explain: Flags.boolean({ description: "Show edit-by-edit motivations (default: last session, or use --session)" }),
     session: Flags.string({ description: "Session ID or prefix for --explain (default: last session in current project)" }),
     limit: Flags.integer({ description: "Max sessions", default: 20 }),
+    line: Flags.string({ char: "L", description: "Line range for --explain (e.g. 40,50 or 42). Only show edits affecting those lines" }),
     json: Flags.boolean({ description: "Output as JSON" }),
   };
 
@@ -49,7 +50,7 @@ export default class Log extends Command {
       if (!session) {
         this.error(flags.session ? `Session not found: ${flags.session}` : "No sessions found in current project.");
       }
-      await this.runExplain(session, args.file);
+      await this.runExplain(session, args.file, { grep: flags.grep, lineRange: flags.line });
       return;
     }
 
@@ -187,9 +188,40 @@ export default class Log extends Command {
     this.log(`${entries.length} session${entries.length !== 1 ? "s" : ""}. Use --net for diffs, --explain for motivations.`);
   }
 
-  private async runExplain(session: import("../lib/resolve-session.js").ResolvedSession, file: string) {
+  private async runExplain(
+    session: import("../lib/resolve-session.js").ResolvedSession,
+    file: string,
+    opts: { grep?: string; lineRange?: string } = {},
+  ) {
     const sessionId = session.id;
     const jsonlPath = session.jsonl_path;
+
+    // Parse -L range if provided
+    let targetLines: string[] | null = null;
+    let significantTarget: string[] | null = null;
+    let lineStart = 0;
+    let lineEnd = 0;
+
+    if (opts.lineRange) {
+      const parts = opts.lineRange.split(",").map((s) => parseInt(s.trim(), 10));
+      lineStart = parts[0];
+      lineEnd = parts.length > 1 ? parts[1] : lineStart;
+      if (isNaN(lineStart) || isNaN(lineEnd) || lineStart < 1) {
+        this.error(`Invalid line range: ${opts.lineRange}. Use -L 42 or -L 40,50`);
+      }
+      const resolvedFile = path.isAbsolute(file) ? file : path.resolve(file);
+      if (!fs.existsSync(resolvedFile)) {
+        this.error(`File not found (needed for -L): ${resolvedFile}`);
+      }
+      const fileContent = fs.readFileSync(resolvedFile, "utf-8");
+      const allLines = fileContent.split("\n");
+      targetLines = allLines.slice(lineStart - 1, lineEnd);
+      if (targetLines.length === 0) {
+        this.error(`Lines ${lineStart}-${lineEnd} out of range (file has ${allLines.length} lines)`);
+      }
+      // Only match on lines with meaningful content (skip braces, blank lines, etc.)
+      significantTarget = targetLines.filter((l) => l.trim().length > 4);
+    }
 
     // Find all Edit/Write tool_uses for this file in this session
     interface EditEntry {
@@ -246,13 +278,49 @@ export default class Log extends Command {
       return;
     }
 
+    // Filter edits by --grep and/or -L
+    const filteredEdits = edits.filter((edit) => {
+      // --grep: match pattern against old_string, new_string, or content
+      if (opts.grep) {
+        const p = opts.grep.toLowerCase();
+        const os = (edit.oldString || "").toLowerCase();
+        const ns = (edit.newString || "").toLowerCase();
+        const ct = (edit.content || "").toLowerCase();
+        if (!os.includes(p) && !ns.includes(p) && !ct.includes(p)) return false;
+      }
+      // -L: match significant target lines against edit content
+      if (significantTarget && significantTarget.length > 0) {
+        const combined = `${edit.oldString || ""}\n${edit.newString || ""}`;
+        if (!significantTarget.some((line) => combined.includes(line.trim()))) return false;
+      }
+      return true;
+    });
+
+    if (filteredEdits.length === 0) {
+      const sid = sessionId.slice(0, 8);
+      if (opts.grep) this.log(`No edits matching "${opts.grep}" in session ${sid}.`);
+      else if (opts.lineRange) this.log(`No edits affecting L${lineStart}-${lineEnd} in session ${sid}.`);
+      return;
+    }
+
     // Build uuid map for chain walking
     const uuidMap = await buildUuidMap(jsonlPath);
 
     // Header
     const sid = sessionId.slice(0, 8);
     const model = (session.model_used || "").replace("claude-", "");
-    this.log(`\x1b[1mExplain: ${file}\x1b[0m  session \x1b[33m${sid}\x1b[0m  ${session.created_at.slice(0, 10)}  ${model}\n`);
+    this.log(`\x1b[1mExplain: ${file}\x1b[0m  session \x1b[33m${sid}\x1b[0m  ${session.created_at.slice(0, 10)}  ${model}`);
+    if (opts.grep) this.log(`\x1b[2mFiltered by: --grep="${opts.grep}"\x1b[0m`);
+    if (opts.lineRange) this.log(`\x1b[2mFiltered by: -L ${opts.lineRange}\x1b[0m`);
+    this.log("");
+
+    // Show target lines if -L (context for what the user is investigating)
+    if (targetLines) {
+      for (let i = 0; i < targetLines.length; i++) {
+        this.log(`  \x1b[2m${String(lineStart + i).padStart(4)}\x1b[0m  ${targetLines[i]}`);
+      }
+      this.log("");
+    }
 
     // Net diff from file-history (if available)
     const historyDir = getHistoryDir(sessionId);
@@ -267,7 +335,16 @@ export default class Log extends Command {
         const oldContent = readSnapshot(historyDir, hash, versions[0]);
         const newContent = readSnapshot(historyDir, hash, versions[versions.length - 1]);
         if (oldContent && newContent && oldContent !== newContent) {
-          const { text, added, removed } = computeDiff(oldContent, newContent, fp);
+          let { text, added, removed } = computeDiff(oldContent, newContent, fp);
+          // --grep: filter net diff to matching hunks only
+          if (text && opts.grep) {
+            const filtered = grepDiffHunks(text, opts.grep);
+            if (filtered) {
+              text = filtered;
+            } else {
+              text = "";
+            }
+          }
           if (text) {
             this.log(`\x1b[2mNet diff (\x1b[32m+${added}\x1b[2m/\x1b[31m-${removed}\x1b[2m):\x1b[0m`);
             this.log(text);
@@ -278,10 +355,10 @@ export default class Log extends Command {
       }
     }
 
-    this.log(`\x1b[2m── Edit-by-edit breakdown ──\x1b[0m\n`);
+    this.log(`\x1b[2m── Edit-by-edit breakdown (${filteredEdits.length}/${edits.length} edits) ──\x1b[0m\n`);
 
-    for (let i = 0; i < edits.length; i++) {
-      const edit = edits[i];
+    for (let i = 0; i < filteredEdits.length; i++) {
+      const edit = filteredEdits[i];
       const ctx = traceEditContext(uuidMap, edit.uuid);
       const time = edit.timestamp.slice(11, 19);
 
@@ -313,7 +390,7 @@ export default class Log extends Command {
       this.log("");
     }
 
-    this.log(`${edits.length} edit${edits.length !== 1 ? "s" : ""} to ${file} in this session.`);
+    this.log(`${filteredEdits.length} edit${filteredEdits.length !== 1 ? "s" : ""} shown${filteredEdits.length < edits.length ? ` (${edits.length} total)` : ""} for ${file}.`);
   }
 }
 
