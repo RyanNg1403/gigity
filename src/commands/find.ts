@@ -140,7 +140,8 @@ export default class Find extends Command {
     }
 
     if (results.length === 0) {
-      this.error(`No sessions matching "${args.query}"`);
+      this.log(`No sessions matching "${args.query}".`);
+      return;
     }
 
     if (flags.json) {

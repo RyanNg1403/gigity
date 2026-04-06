@@ -11,6 +11,8 @@ description: >
 
 All commands auto-sync fresh data and are read-only (except `undo`). Session IDs support prefix matching (first 4-8 chars). All path flags resolve `.` to cwd.
 
+**Syntax:** `diff`, `undo`, `log --explain` take session ID as a **positional arg** (`ggt diff abc123`), not a flag. `log` and `blame` take **file** as a positional arg — they are file-scoped, not session-scoped. Use `sessions list`, `find`, or `cost` for session-level overview.
+
 ---
 
 ## Context efficiency rules
