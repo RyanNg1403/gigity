@@ -577,9 +577,9 @@ export default class SessionsImport extends Command {
     "Import a session bundle exported from another machine. Rewrites paths, appends a handoff message, and places files in the correct locations under ~/.claude.";
 
   static override examples = [
-    "<%= config.bin %> sessions import session-abc123.tar.gz --project-dir /Users/Team/workspace/gigity",
-    '<%= config.bin %> sessions import bundle.tar.gz --project-dir . --note "Focus on the auth refactor"',
-    "<%= config.bin %> sessions import bundle.tar.gz --project-dir . --yes",
+    "<%= config.bin %> sessions import session-abc123.tar.gz --dest /Users/Team/workspace/gigity",
+    '<%= config.bin %> sessions import bundle.tar.gz --dest . --note "Focus on the auth refactor"',
+    "<%= config.bin %> sessions import bundle.tar.gz --dest . --yes",
   ];
 
   static override args = {
@@ -590,8 +590,9 @@ export default class SessionsImport extends Command {
   };
 
   static override flags = {
-    "project-dir": Flags.string({
-      description: "Absolute path to the project on this machine",
+    dest: Flags.string({
+      char: "d",
+      description: "Path to the project on this machine",
       required: true,
     }),
     note: Flags.string({
@@ -618,7 +619,7 @@ export default class SessionsImport extends Command {
     }
 
     // Resolve project dir to absolute path
-    const newProjectPath = path.resolve(flags["project-dir"]);
+    const newProjectPath = path.resolve(flags.dest);
     if (!flags["dry-run"] && !fs.existsSync(newProjectPath)) {
       this.error(`Project directory not found: ${newProjectPath}`);
     }

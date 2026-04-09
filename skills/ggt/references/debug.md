@@ -52,7 +52,7 @@ File change history across all sessions.
 
 ```bash
 ggt log src/lib/db.ts                              # compact timeline
-ggt log src/lib/db.ts --net                        # with net unified diffs
+ggt log src/lib/db.ts --patch                        # with net unified diffs
 ggt log src/lib/db.ts --grep=CREATE                # only sessions where diff matches
 ggt log src/lib/db.ts --explain                    # motivations (last session)
 ggt log src/lib/db.ts --explain --session=abc123   # motivations (specific session)
@@ -62,7 +62,7 @@ ggt log src/lib/db.ts --explain -L 40,50           # only edits affecting lines 
 
 | Flag | Description |
 |------|-------------|
-| `--net` | Show net unified diff for each session |
+| `-p, --patch` | Show net unified diff for each session |
 | `--grep` | Filter by pattern. In compact/net mode: filters sessions. In `--explain` mode: filters individual edits |
 | `--explain` | Edit-by-edit breakdown with user prompt + Claude intent (default: last session) |
 | `--session` | Session ID or prefix for `--explain` |

@@ -21,7 +21,7 @@ export default class Log extends Command {
 
   static override examples = [
     "<%= config.bin %> log src/lib/db.ts",
-    "<%= config.bin %> log src/lib/db.ts --net",
+    "<%= config.bin %> log src/lib/db.ts --patch",
     "<%= config.bin %> log src/lib/db.ts --explain",
     "<%= config.bin %> log src/lib/db.ts --explain --session=dab1f061",
   ];
@@ -31,7 +31,7 @@ export default class Log extends Command {
   };
 
   static override flags = {
-    net: Flags.boolean({ description: "Show net unified diff for each session" }),
+    patch: Flags.boolean({ char: "p", description: "Show net unified diff for each session" }),
     grep: Flags.string({ description: "Only show sessions where the diff matches this pattern" }),
     explain: Flags.boolean({ description: "Show edit-by-edit motivations (default: last session, or use --session)" }),
     session: Flags.string({ description: "Session ID or prefix for --explain (default: last session in current project)" }),
@@ -151,7 +151,7 @@ export default class Log extends Command {
           linesAdded: added,
           linesRemoved: removed,
           isNew: false,
-          diffText: (flags.net || flags.grep) ? text : undefined,
+          diffText: (flags.patch || flags.grep) ? text : undefined,
         });
         break; // one match per session
       }
@@ -185,7 +185,7 @@ export default class Log extends Command {
       this.log("");
     }
 
-    this.log(`${entries.length} session${entries.length !== 1 ? "s" : ""}. Use --net for diffs, --explain for motivations.`);
+    this.log(`${entries.length} session${entries.length !== 1 ? "s" : ""}. Use --patch for diffs, --explain for motivations.`);
   }
 
   private async runExplain(

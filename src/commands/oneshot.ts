@@ -23,9 +23,9 @@ export default class Oneshot extends Command {
     "Search for a message, export its session, and import it into a project — all in one command.";
 
   static override examples = [
-    '<%= config.bin %> oneshot "accept the first three" -p ../byterover-cli',
-    '<%= config.bin %> oneshot "fix auth bug" -p ../my-app -n auth-handoff',
-    '<%= config.bin %> oneshot "database migration" -p . -f my-other-project',
+    '<%= config.bin %> oneshot "accept the first three" -d ../byterover-cli',
+    '<%= config.bin %> oneshot "fix auth bug" -d ../my-app -n auth-handoff',
+    '<%= config.bin %> oneshot "database migration" -d . -f my-other-project',
   ];
 
   static override args = {
@@ -33,8 +33,8 @@ export default class Oneshot extends Command {
   };
 
   static override flags = {
-    project: Flags.string({
-      char: "p",
+    dest: Flags.string({
+      char: "d",
       description: "Destination project directory for import",
       required: true,
     }),
@@ -136,7 +136,7 @@ export default class Oneshot extends Command {
     this.log(`  ${bestMatch.snippet}\n`);
 
     // 3. Export
-    const destProject = path.resolve(flags.project);
+    const destProject = path.resolve(flags.dest);
     const archivePath = path.resolve(destProject, flags.name.endsWith(".tar.gz") ? flags.name : `${flags.name}.tar.gz`);
 
     this.log(`Exporting session ${bestMatch.sessionId.slice(0, 8)}...`);
@@ -153,7 +153,7 @@ export default class Oneshot extends Command {
     const yesFlag = flags.yes ? " --yes" : "";
     const noteFlag = flags.note ? ` --note "${flags.note.replace(/"/g, '\\"')}"` : "";
     try {
-      execSync(`ggt sessions import "${archivePath}" --project-dir "${destProject}"${yesFlag}${noteFlag}`, {
+      execSync(`ggt sessions import "${archivePath}" --dest "${destProject}"${yesFlag}${noteFlag}`, {
         stdio: "inherit",
       });
     } catch {

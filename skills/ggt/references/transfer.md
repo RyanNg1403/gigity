@@ -5,14 +5,14 @@
 Search → export → import in one command. Finds a session by message content, exports it, and imports into the target project.
 
 ```bash
-ggt oneshot "fix the auth bug" -p ../my-app
-ggt oneshot "database migration" -p . -f other-project -n handoff
-ggt oneshot "refactor" -p ../target -y --note "Focus on the auth module"
+ggt oneshot "fix the auth bug" -d ../my-app
+ggt oneshot "database migration" -d . -f other-project -n handoff
+ggt oneshot "refactor" -d ../target -y --note "Focus on the auth module"
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-p, --project` | **(required)** Destination project directory |
+| `-d, --dest` | **(required)** Destination project directory |
 | `-f, --from` | Project to search in (default: cwd) |
 | `-n, --name` | Archive filename without `.tar.gz` (default: `imported-session`) |
 | `-y, --yes` | Accept all bundled env artifacts without prompting |
@@ -58,15 +58,15 @@ Only artifacts **actually used in the session** are detected and bundled.
 Import a session bundle. Rewrites paths, offers interactive env setup.
 
 ```bash
-ggt sessions import bundle.tar.gz --project-dir /path/to/project
-ggt sessions import bundle.tar.gz --project-dir . --yes
-ggt sessions import bundle.tar.gz --project-dir . --note "Focus on auth"
-ggt sessions import bundle.tar.gz --project-dir . --dry-run
+ggt sessions import bundle.tar.gz --dest /path/to/project
+ggt sessions import bundle.tar.gz --dest . --yes
+ggt sessions import bundle.tar.gz --dest . --note "Focus on auth"
+ggt sessions import bundle.tar.gz --dest . --dry-run
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--project-dir` | **(required)** Path to the project on this machine |
+| `-d, --dest` | **(required)** Path to the project on this machine |
 | `--note` | Optional note in the handoff message |
 | `--dry-run` | Show what would be done without writing |
 | `-y, --yes` | Accept all bundled env artifacts without prompting |

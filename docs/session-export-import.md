@@ -11,7 +11,7 @@ ggt sessions export abc123 -o handoff.tar.gz
 # Transfer the archive (email, Slack, shared drive, etc.)
 
 # On the team member's machine: import it (interactive setup)
-ggt sessions import handoff.tar.gz --project-dir /Users/Team/workspace/my-project
+ggt sessions import handoff.tar.gz --dest /Users/Team/workspace/my-project
 
 # Resume the session
 cd /Users/Team/workspace/my-project
@@ -147,7 +147,7 @@ If a `sessions-index.json` already exists for the project, the imported session 
 
 | Flag | Description |
 |------|-------------|
-| `--project-dir` | **(required)** Path to the project on the target machine |
+| `--dest` | **(required)** Path to the project on the target machine |
 | `--note` | Optional note appended to the handoff message |
 | `--dry-run` | Preview what would happen without writing anything |
 | `-y, --yes` | Accept all bundled environment artifacts without prompting |

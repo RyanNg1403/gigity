@@ -39,7 +39,7 @@ The database is built automatically on first use. Every command syncs fresh data
 
 ```bash
 ggt log src/lib/db.ts                     # Compact timeline
-ggt log src/lib/db.ts --net             # With net diffs
+ggt log src/lib/db.ts --patch           # With net diffs
 ggt log src/lib/db.ts --explain           # Why was each edit made? (last session)
 ```
 
@@ -111,7 +111,7 @@ After import, `claude --resume` picks up exactly where you left off.
 ggt sessions list --project=.          # Browse sessions
 ggt sessions show f81f                 # Session details + cost
 ggt sessions export abc123 -o handoff  # Export a session bundle
-ggt sessions import bundle.tar.gz --project-dir .
+ggt sessions import bundle.tar.gz --dest .
 ggt messages search "auth" --project=. # Search message content
 ggt messages list f81f --type=user     # Read messages
 ggt projects list                      # All indexed projects

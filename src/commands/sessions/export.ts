@@ -649,6 +649,6 @@ export default class SessionsExport extends Command {
     const archiveSize = fs.statSync(absOutput).size;
     this.log(`\nExported to: ${absOutput} (${(archiveSize / 1024).toFixed(0)} KB)`);
     this.log(`\nTo import on another machine:`);
-    this.log(`  ggt sessions import ${path.basename(absOutput)} --project-dir /path/to/project`);
+    this.log(`  ggt sessions import ${path.basename(absOutput)} --dest /path/to/project`);
   }
 }

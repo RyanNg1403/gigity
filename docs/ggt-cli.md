@@ -17,7 +17,7 @@ Show history of a file across all sessions — every change, chronologically.
 
 ```bash
 ggt log src/lib/db.ts                              # Compact timeline
-ggt log src/lib/db.ts --net                      # With unified diffs
+ggt log src/lib/db.ts --patch                      # With unified diffs
 ggt log src/lib/db.ts --explain                    # Motivations (last session)
 ggt log src/lib/db.ts --explain --session=dab1f061 # Motivations (specific session)
 ```
@@ -26,7 +26,7 @@ ggt log src/lib/db.ts --explain --session=dab1f061 # Motivations (specific sessi
 
 | Flag | Description |
 |------|-------------|
-| `--net` | Show net unified diff for each session |
+| `--patch` | Show net unified diff for each session |
 | `--grep` | Only show sessions where the diff contains this pattern (auto-shows diff) |
 | `--explain` | Show edit-by-edit motivations (default: last session) |
 | `--session` | Session ID or prefix for `--explain` |
@@ -193,16 +193,16 @@ See [session-export-import.md](session-export-import.md) for full details on wha
 Import a session bundle exported from another machine.
 
 ```bash
-ggt sessions import bundle.tar.gz --project-dir /path/to/project
-ggt sessions import bundle.tar.gz --project-dir . --note "Focus on auth"
-ggt sessions import bundle.tar.gz --project-dir . --yes    # Accept all
+ggt sessions import bundle.tar.gz --dest /path/to/project
+ggt sessions import bundle.tar.gz --dest . --note "Focus on auth"
+ggt sessions import bundle.tar.gz --dest . --yes    # Accept all
 ```
 
 See [session-export-import.md](session-export-import.md) for full details on the import process.
 
 | Flag | Description |
 |------|-------------|
-| `--project-dir` | **(required)** Path to the project on this machine |
+| `--dest` | **(required)** Path to the project on this machine |
 | `--note` | Optional note included in the handoff message |
 | `--dry-run` | Show what would be done without writing files |
 | `-y, --yes` | Accept all bundled environment artifacts without prompting |
@@ -282,7 +282,7 @@ All commands support `--json` for piping to `jq` or other tools.
 
 ## Notes
 
-- All path flags (`--project`, `--from`, `--project-dir`) resolve `.` to the current directory
+- All path flags (`--project`, `--from`, `--dest`) resolve `.` to the current directory
 - Session IDs support prefix matching — use first 4-8 chars instead of the full UUID
 - The database auto-syncs when stale (>60s); use `ggt sync` to force it
 

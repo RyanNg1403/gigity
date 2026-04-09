@@ -27,7 +27,7 @@ All commands auto-sync fresh data and are read-only (except `undo`). Session IDs
 
 **Dangerous (context-blowing):**
 - `ggt diff` on a large session with no filters — can dump hundreds of lines
-- `ggt log <file> --net` on a frequently edited file — full diffs for every session
+- `ggt log <file> --patch` on a frequently edited file — full diffs for every session
 - `ggt log <file> --explain` with no `--grep` or `-L` — dumps every edit in the session
 - `ggt messages list <id> --full` with high `--limit` — user messages can contain entire pasted files, JSON payloads, and tool outputs of unpredictable size
 
@@ -103,7 +103,7 @@ When you need to understand why a file looks the way it does:
 ggt blame src/lib/db.ts
 
 # Step 2: what specifically changed? (pick a session from blame)
-ggt log src/lib/db.ts --net               # net diff per session
+ggt log src/lib/db.ts --patch               # net diff per session
 
 # Step 3: why was line 42 written?
 ggt blame src/lib/db.ts -L 42
@@ -129,11 +129,11 @@ ggt cost --by=model                       # model breakdown
 
 ```bash
 # One command: search → export → import
-ggt oneshot "fix the auth bug" -p ../target-project
+ggt oneshot "fix the auth bug" -d ../target-project
 
 # Or step by step
 ggt sessions export abc123 -o handoff
-ggt sessions import handoff.tar.gz --project-dir .
+ggt sessions import handoff.tar.gz --dest .
 ```
 
 For full flags: read `references/transfer.md`
