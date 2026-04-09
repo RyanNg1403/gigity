@@ -1,11 +1,9 @@
 import { Args, Command, Flags } from "@oclif/core";
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
-import { execSync } from "node:child_process";
 import { ensureSynced } from "../lib/auto-sync.js";
 import { resolveSession } from "../lib/resolve-session.js";
-import { diffMatchesGrep, grepDiffHunks } from "../lib/diff.js";
+import { diffMatchesGrep, grepDiffHunks, unifiedDiff } from "../lib/diff.js";
 import { parseJsonl } from "../lib/jsonl.js";
 import {
   getHistoryDir,
@@ -226,6 +224,7 @@ export default class Log extends Command {
     // Find all Edit/Write tool_uses for this file in this session
     interface EditEntry {
       uuid: string;
+      toolUseId: string;
       toolName: string;
       filePath: string;
       oldString?: string;
@@ -253,6 +252,7 @@ export default class Log extends Command {
 
           edits.push({
             uuid: record.uuid as string,
+            toolUseId: String(b.id),
             toolName: String(b.name),
             filePath: fp,
             oldString: b.name === "Edit" ? String(input.old_string || "") : undefined,
@@ -273,13 +273,22 @@ export default class Log extends Command {
       }
     }
 
-    if (edits.length === 0) {
-      this.log(`No edits to "${file}" found in session ${sessionId.slice(0, 8)}.`);
+    // Remove rejected edits (tool_result with is_error=true)
+    const rejectedCount = edits.filter((e) => toolResultSuccess.get(e.toolUseId) === false).length;
+    const successfulEdits = edits.filter((e) => toolResultSuccess.get(e.toolUseId) !== false);
+
+    if (successfulEdits.length === 0) {
+      const sid = sessionId.slice(0, 8);
+      if (rejectedCount > 0) {
+        this.log(`No successful edits to "${file}" in session ${sid} (${rejectedCount} rejected).`);
+      } else {
+        this.log(`No edits to "${file}" found in session ${sid}.`);
+      }
       return;
     }
 
     // Filter edits by --grep and/or -L
-    const filteredEdits = edits.filter((edit) => {
+    const filteredEdits = successfulEdits.filter((edit) => {
       // --grep: match pattern against old_string, new_string, or content
       if (opts.grep) {
         const p = opts.grep.toLowerCase();
@@ -327,7 +336,8 @@ export default class Log extends Command {
         date: session.created_at.slice(0, 10),
         model: (session.model_used || "").replace("claude-", ""),
         editsShown: filteredEdits.length,
-        editsTotal: edits.length,
+        editsTotal: successfulEdits.length,
+        rejected: rejectedCount,
         edits: jsonEdits,
       }, null, 2));
       return;
@@ -382,7 +392,8 @@ export default class Log extends Command {
       }
     }
 
-    this.log(`\x1b[2m── Edit-by-edit breakdown (${filteredEdits.length}/${edits.length} edits) ──\x1b[0m\n`);
+    const rejectedNote = rejectedCount > 0 ? `, ${rejectedCount} rejected` : "";
+    this.log(`\x1b[2m── Edit-by-edit breakdown (${filteredEdits.length}/${successfulEdits.length} edits${rejectedNote}) ──\x1b[0m\n`);
 
     for (let i = 0; i < filteredEdits.length; i++) {
       const edit = filteredEdits[i];
@@ -417,56 +428,18 @@ export default class Log extends Command {
       this.log("");
     }
 
-    this.log(`${filteredEdits.length} edit${filteredEdits.length !== 1 ? "s" : ""} shown${filteredEdits.length < edits.length ? ` (${edits.length} total)` : ""} for ${file}.`);
+    this.log(`${filteredEdits.length} edit${filteredEdits.length !== 1 ? "s" : ""} shown${filteredEdits.length < successfulEdits.length ? ` (${successfulEdits.length} total)` : ""}${rejectedCount > 0 ? `, ${rejectedCount} rejected` : ""} for ${file}.`);
   }
 }
 
+/** Compute diff with 2-space indentation for log output. */
 function computeDiff(
   oldContent: string,
   newContent: string,
   filePath: string,
 ): { text: string; added: number; removed: number } {
-  const tmpOld = path.join(os.tmpdir(), `ggt-log-old-${process.pid}-${Date.now()}`);
-  const tmpNew = path.join(os.tmpdir(), `ggt-log-new-${process.pid}-${Date.now()}`);
-
-  fs.writeFileSync(tmpOld, oldContent);
-  fs.writeFileSync(tmpNew, newContent);
-
-  let rawDiff: string;
-  try {
-    rawDiff = execSync(`diff -u "${tmpOld}" "${tmpNew}"`, { encoding: "utf-8" });
-    rawDiff = "";
-  } catch (e: unknown) {
-    const err = e as { status?: number; stdout?: string };
-    rawDiff = err.status === 1 ? (err.stdout || "") : "";
-  } finally {
-    try { fs.unlinkSync(tmpOld); } catch { /* */ }
-    try { fs.unlinkSync(tmpNew); } catch { /* */ }
-  }
-
-  if (!rawDiff) return { text: "", added: 0, removed: 0 };
-
-  let added = 0;
-  let removed = 0;
-  const colored: string[] = [];
-
-  for (const [i, line] of rawDiff.split("\n").entries()) {
-    if (i === 0 && line.startsWith("---")) {
-      colored.push(`  \x1b[1m--- a/${filePath}\x1b[0m`);
-    } else if (i === 1 && line.startsWith("+++")) {
-      colored.push(`  \x1b[1m+++ b/${filePath}\x1b[0m`);
-    } else if (line.startsWith("@@")) {
-      colored.push(`  \x1b[36m${line}\x1b[0m`);
-    } else if (line.startsWith("-")) {
-      removed++;
-      colored.push(`  \x1b[31m${line}\x1b[0m`);
-    } else if (line.startsWith("+")) {
-      added++;
-      colored.push(`  \x1b[32m${line}\x1b[0m`);
-    } else {
-      colored.push(`  ${line}`);
-    }
-  }
-
-  return { text: colored.join("\n"), added, removed };
+  const result = unifiedDiff(oldContent, newContent, filePath);
+  if (!result.text) return result;
+  // Add 2-space indent for log display
+  return { ...result, text: result.text.split("\n").map((l) => `  ${l}`).join("\n") };
 }

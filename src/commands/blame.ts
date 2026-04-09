@@ -227,19 +227,28 @@ export default class Blame extends Command {
           const model = ((sess.model_used as string) || "").replace("claude-", "");
           const date = ((sess.created_at as string) || "").slice(0, 16);
 
-          if (json) {
-            // Get motivation
-            const uuidMap = await buildUuidMap(jsonlPath);
-            // Find the edit that introduced this content
-            let editUuid: string | null = null;
-            const { parseJsonl } = await import("../lib/jsonl.js");
-            for await (const record of parseJsonl(jsonlPath)) {
-              if (record.type !== "assistant") continue;
+          // Find the specific edit that introduced this content (skip rejected edits)
+          const uuidMap = await buildUuidMap(jsonlPath);
+          const { parseJsonl } = await import("../lib/jsonl.js");
+          const rejectedIds = new Set<string>();
+          let editUuid: string | null = null;
+
+          for await (const record of parseJsonl(jsonlPath)) {
+            if (record.type === "user") {
               const content = record.message?.content;
               if (!Array.isArray(content)) continue;
               for (const block of content) {
                 const b = block as Record<string, unknown>;
-                if (b.type === "tool_use" && (b.name === "Edit" || b.name === "Write")) {
+                if (b.type === "tool_result" && b.is_error === true && b.tool_use_id) {
+                  rejectedIds.add(String(b.tool_use_id));
+                }
+              }
+            } else if (record.type === "assistant") {
+              const content = record.message?.content;
+              if (!Array.isArray(content)) continue;
+              for (const block of content) {
+                const b = block as Record<string, unknown>;
+                if (b.type === "tool_use" && (b.name === "Edit" || b.name === "Write") && !rejectedIds.has(String(b.id))) {
                   const input = b.input as Record<string, unknown> | undefined;
                   const ns = String(input?.new_string || input?.content || "");
                   if (ns.includes(targetContent) || targetContent.includes(ns.slice(0, 100))) {
@@ -250,9 +259,11 @@ export default class Blame extends Command {
               }
               if (editUuid) break;
             }
+          }
 
-            const ctx = editUuid ? traceEditContext(uuidMap, editUuid) : { userPrompt: null, claudeIntent: null };
+          const ctx = editUuid ? traceEditContext(uuidMap, editUuid) : { userPrompt: null, claudeIntent: null };
 
+          if (json) {
             this.log(JSON.stringify({
               sessionId,
               date: sess.created_at,
@@ -270,30 +281,11 @@ export default class Blame extends Command {
           const prompt = ((sess.first_prompt as string) || "").slice(0, 100).replace(/\n/g, " ");
           if (prompt) this.log(`  \x1b[2m${prompt}\x1b[0m`);
 
-          // Try to find the specific edit and trace motivation
-          const uuidMap = await buildUuidMap(jsonlPath);
-          const { parseJsonl } = await import("../lib/jsonl.js");
-          for await (const record of parseJsonl(jsonlPath)) {
-            if (record.type !== "assistant") continue;
-            const content = record.message?.content;
-            if (!Array.isArray(content)) continue;
-            for (const block of content) {
-              const b = block as Record<string, unknown>;
-              if (b.type === "tool_use" && (b.name === "Edit" || b.name === "Write")) {
-                const input = b.input as Record<string, unknown> | undefined;
-                const ns = String(input?.new_string || input?.content || "");
-                if (ns.includes(targetContent) || targetContent.includes(ns.slice(0, 100))) {
-                  const ctx = traceEditContext(uuidMap, record.uuid as string);
-                  if (ctx.userPrompt) {
-                    this.log(`\n  \x1b[33mUser:\x1b[0m   ${ctx.userPrompt.replace(/\n/g, " ").slice(0, 200)}`);
-                  }
-                  if (ctx.claudeIntent) {
-                    this.log(`  \x1b[36mClaude:\x1b[0m ${ctx.claudeIntent.replace(/\n/g, " ").slice(0, 200)}`);
-                  }
-                  return;
-                }
-              }
-            }
+          if (ctx.userPrompt) {
+            this.log(`\n  \x1b[33mUser:\x1b[0m   ${ctx.userPrompt.replace(/\n/g, " ").slice(0, 200)}`);
+          }
+          if (ctx.claudeIntent) {
+            this.log(`  \x1b[36mClaude:\x1b[0m ${ctx.claudeIntent.replace(/\n/g, " ").slice(0, 200)}`);
           }
           return;
         }

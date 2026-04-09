@@ -3,20 +3,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import { ensureSynced } from "../lib/auto-sync.js";
 import { parseJsonl } from "../lib/jsonl.js";
-
-/** Extract only human-readable text blocks */
-function extractReadableText(record: { type: string; message?: { content?: unknown } }): string {
-  const content = record.message?.content;
-  if (!content) return "";
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const block of content) {
-    const b = block as Record<string, unknown>;
-    if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
-  }
-  return parts.join(" ");
-}
+import { extractReadableText, scoreMatch, SKIP_RECORD_TYPES } from "../lib/search.js";
 
 export default class Oneshot extends Command {
   static override description =
@@ -88,32 +75,10 @@ export default class Oneshot extends Command {
     for (const sess of sessions) {
       try {
         for await (const record of parseJsonl(sess.jsonl_path)) {
-          if (!record.type || record.type === "file-history-snapshot" || record.type === "last-prompt" || record.type === "progress" || record.type === "system") continue;
+          if (!record.type || SKIP_RECORD_TYPES.has(record.type)) continue;
 
           const text = extractReadableText(record);
-          const textLower = text.toLowerCase();
-
-          let score = 0;
-          let matchIdx = -1;
-
-          // Exact phrase match
-          const phraseIdx = textLower.indexOf(queryLower);
-          if (phraseIdx >= 0) {
-            score = 1000 + queryLower.length;
-            matchIdx = phraseIdx;
-          } else {
-            let matched = 0;
-            for (const term of queryTerms) {
-              const idx = textLower.indexOf(term);
-              if (idx >= 0) {
-                score += term.length;
-                matched++;
-                if (matchIdx < 0) matchIdx = idx;
-              }
-            }
-            const meaningfulTerms = queryTerms.length;
-            if (matched < Math.max(1, Math.ceil(meaningfulTerms * 0.5))) score = 0;
-          }
+          const { score, matchIdx } = scoreMatch(text.toLowerCase(), queryLower, queryTerms);
 
           if (score > 0 && matchIdx >= 0 && (!bestMatch || score > bestMatch.score)) {
             const start = Math.max(0, matchIdx - 30);

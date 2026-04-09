@@ -2,23 +2,7 @@ import { Args, Command, Flags } from "@oclif/core";
 import path from "node:path";
 import { ensureSynced } from "../../lib/auto-sync.js";
 import { parseJsonl } from "../../lib/jsonl.js";
-
-/** Extract only human-readable text (no tool inputs, no file paths, no JSON blobs) */
-function extractReadableText(record: { type: string; message?: { content?: unknown } }): string {
-  const content = record.message?.content;
-  if (!content) return "";
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-
-  const parts: string[] = [];
-  for (const block of content) {
-    const b = block as Record<string, unknown>;
-    if (b.type === "text" && typeof b.text === "string") {
-      parts.push(b.text);
-    }
-  }
-  return parts.join(" ");
-}
+import { extractReadableText, scoreMatch, SKIP_RECORD_TYPES } from "../../lib/search.js";
 
 export default class MessagesSearch extends Command {
   static override description = "Search message content across sessions using keyword matching";
@@ -96,40 +80,11 @@ export default class MessagesSearch extends Command {
       let msgIdx = 0;
       try {
         for await (const record of parseJsonl(sess.jsonl_path)) {
-          if (!record.type || record.type === "file-history-snapshot" || record.type === "last-prompt" || record.type === "progress") continue;
+          if (!record.type || SKIP_RECORD_TYPES.has(record.type)) continue;
           if (flags.type && record.type !== flags.type) { msgIdx++; continue; }
-          if (record.type === "system") { msgIdx++; continue; }
 
           const text = extractReadableText(record);
-          const textLower = text.toLowerCase();
-
-          // Score: exact phrase match >> individual term matches
-          let score = 0;
-          let matchIdx = -1;
-
-          // Exact phrase match gets a massive boost
-          const phraseIdx = textLower.indexOf(queryLower);
-          if (phraseIdx >= 0) {
-            score = 1000 + queryLower.length;
-            matchIdx = phraseIdx;
-          } else {
-            // Fall back to individual term matching — longer terms score higher
-            let matched = 0;
-            for (const term of queryTerms) {
-              if (term.length < 3) continue; // skip trivial words
-              const idx = textLower.indexOf(term);
-              if (idx >= 0) {
-                score += term.length; // longer terms = more specific = higher score
-                matched++;
-                if (matchIdx < 0) matchIdx = idx;
-              }
-            }
-            // Require at least half the non-trivial terms to match
-            const meaningfulTerms = queryTerms.filter((t) => t.length >= 3).length;
-            if (matched < Math.max(1, Math.ceil(meaningfulTerms * 0.5))) {
-              score = 0;
-            }
-          }
+          const { score, matchIdx } = scoreMatch(text.toLowerCase(), queryLower, queryTerms);
 
           if (score > 0 && matchIdx >= 0) {
             const snippetStart = Math.max(0, matchIdx - 40);

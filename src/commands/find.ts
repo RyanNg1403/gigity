@@ -3,19 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { ensureSynced, forceSync } from "../lib/auto-sync.js";
-
-function extractReadableText(record: { type: string; message?: { content?: unknown } }): string {
-  const content = record.message?.content;
-  if (!content) return "";
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const block of content) {
-    const b = block as Record<string, unknown>;
-    if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
-  }
-  return parts.join(" ");
-}
+import { extractReadableText, scoreMatch, SKIP_RECORD_TYPES } from "../lib/search.js";
 
 interface FindResult {
   sessionId: string;
@@ -60,26 +48,10 @@ function searchSessions(
         if (!line.trim()) continue;
         let record;
         try { record = JSON.parse(line); } catch { continue; }
-        if (!record.type || record.type === "file-history-snapshot" || record.type === "last-prompt" || record.type === "progress" || record.type === "system") continue;
+        if (!record.type || SKIP_RECORD_TYPES.has(record.type)) continue;
 
         const text = extractReadableText(record);
-        const textLower = text.toLowerCase();
-
-        let score = 0;
-        if (textLower.indexOf(queryLower) >= 0) {
-          score = 1000 + queryLower.length;
-        } else {
-          let matched = 0;
-          for (const term of queryTerms) {
-            if (term.length < 3) continue;
-            if (textLower.indexOf(term) >= 0) {
-              score += term.length;
-              matched++;
-            }
-          }
-          const meaningfulTerms = queryTerms.filter((t) => t.length >= 3).length;
-          if (matched < Math.max(1, Math.ceil(meaningfulTerms * 0.5))) score = 0;
-        }
+        const { score } = scoreMatch(text.toLowerCase(), queryLower, queryTerms);
 
         if (score > 0) {
           const existing = bestBySession.get(sess.id);

@@ -225,7 +225,7 @@ async function fallbackFromToolCalls(jsonlPath: string): Promise<NetFileDiff[]> 
 
 // ── Diff helpers ────────────────────────────────────────────────
 
-function unifiedDiff(
+export function unifiedDiff(
   oldContent: string,
   newContent: string,
   filePath: string,
@@ -238,8 +238,8 @@ function unifiedDiff(
 
   let rawDiff: string;
   try {
-    rawDiff = execSync(`diff -u "${tmpOld}" "${tmpNew}"`, { encoding: "utf-8" });
-    rawDiff = "";
+    execSync(`diff -u "${tmpOld}" "${tmpNew}"`, { encoding: "utf-8" });
+    rawDiff = ""; // files are identical (exit 0)
   } catch (e: unknown) {
     const err = e as { status?: number; stdout?: string };
     rawDiff = err.status === 1 ? (err.stdout || "") : "";
