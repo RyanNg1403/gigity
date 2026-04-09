@@ -6,23 +6,22 @@
 
 <p align="center">
   <strong>git for AI coding sessions</strong><br>
-  <code>log</code> · <code>diff</code> · <code>blame</code> · <code>undo</code> · <code>cost</code> · <code>export</code><br><br>
-  <a href="https://claude.com/claude-code">Claude Code</a> stores every session as structured data.<br>
-  <code>ggt</code> makes it queryable.
+  <code>log</code> · <code>diff</code> · <code>blame</code> · <code>undo</code> · <code>compare</code> · <code>cost</code> · <code>find</code> · <code>export</code><br><br>
+  <a href="https://claude.com/claude-code">Claude Code</a> records everything in <code>~/.claude/</code>.<br>
+  <code>ggt</code> makes it queryable, diffable, and reversible.
 </p>
 
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#commands">Commands</a> ·
+  <a href="#workflows">Workflows</a> ·
   <a href="docs/ggt-cli.md">Full Reference</a> ·
   <a href="skills/ggt/SKILL.md">Skill</a>
 </p>
 
 ---
 
-The name started as a joke — Quagmire's catchphrase. Then I noticed *git* was hiding in *gigity* all along, and the tool I was building turned out to be exactly that: `git diff`, `git blame`, and `git log` — but for what the AI did to your codebase. Claude Code records everything in `~/.claude/`, yet there was no way to inspect, search, or undo any of it. ggt fills that gap.
-
----
+Every session, every edit, every tool call — indexed into a local SQLite database. Inspect what changed, trace why, revert mistakes, compare approaches, and transfer sessions between projects. All local, no telemetry.
 
 ## Install
 
@@ -31,105 +30,100 @@ git clone https://github.com/RyanNg1403/gigity.git
 cd gigity && pnpm install && pnpm build && npm link
 ```
 
-The database is built automatically on first use. Every command syncs fresh data.
+The database builds automatically on first use. Every command auto-syncs fresh data.
 
 ## Commands
 
-### `ggt log` — File history across sessions
+### Debug — what changed and why
+
+| Command | Purpose |
+|---|---|
+| `ggt diff [id]` | Net file changes in a session (first state → final state) |
+| `ggt log <file>` | File change history across all sessions |
+| `ggt blame <file>` | Which sessions modified a file (with `-L` for specific lines) |
+| `ggt undo [id]` | Restore files to pre-session state (with divergence check) |
+| `ggt compare <a> <b>` | Diff file changes between two sessions |
+
+### Search — recover compacted context
+
+| Command | Purpose |
+|---|---|
+| `ggt find <query>` | Find session IDs by message content (returns matched snippet) |
+| `ggt messages search <query>` | Search message content across sessions |
+| `ggt messages list <id>` | Read messages from a session |
+
+### Analyze
+
+| Command | Purpose |
+|---|---|
+| `ggt cost` | Token spend and estimated cost (group by model, day, project, branch) |
+| `ggt sessions list` | Browse sessions with filters (project, model, branch, date) |
+| `ggt sessions show <id>` | Session details and token usage |
+
+### Transfer
+
+| Command | Purpose |
+|---|---|
+| `ggt oneshot <query>` | Search → export → import in one step |
+| `ggt sessions export <id>` | Bundle session + file history + env into `.tar.gz` |
+| `ggt sessions import <archive>` | Import bundle, rewrite paths, set up env, resume |
+
+### Utilities
+
+| Command | Purpose |
+|---|---|
+| `ggt sql <query>` | Raw SQL against the session database |
+| `ggt projects list` | All indexed projects |
+| `ggt sync` | Force a full re-sync |
+
+All commands support `--json` for structured output and `--no-color` for clean text parsing. Session IDs support prefix matching (first 4-8 chars). Commands default to the **current project and branch**.
+
+## Workflows
+
+### Trace a bug to its source
 
 ```bash
-ggt log src/lib/db.ts                     # Compact timeline
-ggt log src/lib/db.ts --patch           # With net diffs
-ggt log src/lib/db.ts --explain           # Why was each edit made? (last session)
+ggt blame src/lib/db.ts -L 42          # Who wrote line 42?
+ggt log src/lib/db.ts --explain \       # Why was each edit made?
+  --session=abc123 --grep=initSchema
 ```
 
-Shows every change to a file, chronologically. `--explain` traces each edit back to the **user prompt** that triggered it and **Claude's reasoning** — so you can understand not just *what* changed, but *why*.
+`blame -L` pinpoints which session introduced specific lines. `log --explain` traces each edit back to the **user prompt** that triggered it and **Claude's reasoning**.
 
-### `ggt diff` — What did a session change?
+### Understand and revert a session
 
 ```bash
-ggt diff                       # Last session in current project
-ggt diff abc123 --stat         # Summary: files changed, lines +/-
-ggt diff --file=db.ts          # Filter to one file
+ggt diff --stat                         # Summary: files changed, lines +/-
+ggt diff --grep=parseConfig             # Only hunks touching parseConfig
+ggt undo --dry-run                      # Preview what would be restored
+ggt undo --file=src/lib/db.ts           # Restore one file
 ```
 
-Uses `~/.claude/file-history/` snapshots to compute true net diffs — not per-edit noise.
+`diff` computes true net diffs from file-history snapshots (first state → final state), not per-edit noise. `undo` checks for post-session divergence before overwriting.
 
-### `ggt blame` — Who changed this file?
+### Compare two approaches
 
 ```bash
-ggt blame src/lib/db.ts        # Which sessions modified this file
-ggt blame auth                 # Substring match across all paths
+ggt compare abc123 def456 --stat        # Which attempt touched more files?
+ggt compare abc123 def456 --file=db.ts  # How do they differ on one file?
 ```
 
-Traces file modifications back to sessions — with timestamps, models, and the prompt that started each one.
-
-### `ggt undo` — Revert a session's changes
+### Find lost context after compaction
 
 ```bash
-ggt undo --dry-run                   # Preview (last session)
-ggt undo                             # Restore all files to pre-session state
-ggt undo abc123 --file=db.ts         # Specific session, one file
-ggt undo --force                     # Skip divergence check
+ggt find "decided to use Postgres"      # Returns session ID + matched snippet
+ggt diff $(ggt find "auth bug" | awk '{print $1}')  # Pipe into diff
 ```
 
-Reads original file snapshots and writes them back. Files created during the session are deleted. Detects files that changed after the session and skips them unless `--force` is used. Works without git.
+`find` searches message content and returns the matched text so you can decide whether to drill in — one command instead of two.
 
-### `ggt compare` — Compare two sessions
+### Transfer a session to another project
 
 ```bash
-ggt compare abc123 def456              # What's different between two attempts?
-ggt compare abc123 def456 --stat       # Summary only
+ggt oneshot "fix the auth bug" -d ../target-project
 ```
 
-Shows files unique to each session, identical shared files, and unified diffs for files that differ.
-
-### `ggt cost` — How much am I spending?
-
-```bash
-ggt cost                             # Current project
-ggt cost --all --by=project          # Per-project breakdown
-ggt cost --by=day --after=2026-04-01 # Daily trend
-ggt cost --by=model                  # Model breakdown
-```
-
-Maps token usage to Anthropic API pricing. Covers the full Claude model family.
-
-### `ggt find` — Get a session ID fast
-
-```bash
-ggt find "fix the auth bug"          # Best match in current project
-ggt find "migration" --all --limit=5 # Search everywhere
-ggt diff $(ggt find "auth" | awk '{print $1}')
-```
-
-Search by message content, get back session IDs ready to pipe into `diff`, `blame`, or `undo`.
-
-### `ggt oneshot` — Search, export, import in one step
-
-```bash
-ggt oneshot "fix the auth bug" -p ../my-app
-```
-
-Finds a session by what you said in it, exports the bundle, and imports it into another project. The `.tar.gz` includes the full conversation, file history, memories, and environment dependencies (MCP configs, skills, agents, hooks — credentials redacted).
-
-After import, `claude --resume` picks up exactly where you left off.
-
-### More
-
-```bash
-ggt sessions list --project=.          # Browse sessions
-ggt sessions show f81f                 # Session details + cost
-ggt sessions export abc123 -o handoff  # Export a session bundle
-ggt sessions import bundle.tar.gz --dest .
-ggt messages search "auth" --project=. # Search message content
-ggt messages list f81f --type=user     # Read messages
-ggt projects list                      # All indexed projects
-ggt sql "SELECT COUNT(*) FROM sessions" # Raw SQL
-ggt sync                               # Force re-sync
-```
-
-See [docs/ggt-cli.md](docs/ggt-cli.md) for the full CLI reference with all flags.
+Finds a session by what you said in it, exports the full bundle (conversation, file history, memories, MCP configs, skills, agents — credentials redacted), and imports it into the target project. `claude --resume` picks up where you left off.
 
 ---
 
