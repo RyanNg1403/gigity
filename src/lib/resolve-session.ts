@@ -11,9 +11,20 @@ export interface ResolvedSession {
   project_name: string;
 }
 
+export class AmbiguousSessionError extends Error {
+  matches: string[];
+  constructor(prefix: string, matches: string[]) {
+    super(`Ambiguous session prefix "${prefix}" — matches ${matches.length} sessions:\n${matches.map((id) => `  ${id}`).join("\n")}\nUse a longer prefix to disambiguate.`);
+    this.name = "AmbiguousSessionError";
+    this.matches = matches;
+  }
+}
+
 /**
  * Resolve a session by ID prefix, or default to the most recent session
  * in the current project if no ID is provided.
+ *
+ * Throws AmbiguousSessionError if a prefix matches multiple sessions.
  */
 export function resolveSession(
   db: Database.Database,
@@ -26,9 +37,18 @@ export function resolveSession(
   `;
 
   if (idOrPrefix) {
-    // Explicit ID — prefix match
-    return (db.prepare(`${query} WHERE s.id LIKE ? ORDER BY s.created_at DESC LIMIT 1`)
-      .get(`${idOrPrefix}%`) as ResolvedSession | undefined) || null;
+    // Exact match first
+    const exact = db.prepare(`${query} WHERE s.id = ?`).get(idOrPrefix) as ResolvedSession | undefined;
+    if (exact) return exact;
+
+    // Prefix match — fetch up to 10 to detect ambiguity
+    const matches = db.prepare(`${query} WHERE s.id LIKE ? ORDER BY s.created_at DESC LIMIT 10`)
+      .all(`${idOrPrefix}%`) as ResolvedSession[];
+
+    if (matches.length === 0) return null;
+    if (matches.length === 1) return matches[0];
+
+    throw new AmbiguousSessionError(idOrPrefix, matches.map((m) => m.id));
   }
 
   // No ID — most recent session in current project

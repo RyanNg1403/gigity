@@ -79,15 +79,17 @@ ggt undo --dry-run                   # Preview (last session)
 ggt undo                             # Restore all files to pre-session state
 ggt undo abc123 --file=src/lib/db.ts # Restore a single file
 ggt undo --file=db.ts --dry-run      # Single file preview
+ggt undo --force                     # Skip divergence check
 ```
 
-Files created during the session are deleted. Files that no longer exist are recreated. Use `--dry-run` to preview before applying.
+Files created during the session are deleted. Files that no longer exist are recreated. Before overwriting, checks if the file has diverged from the session's final snapshot — skips diverged files unless `--force` is used.
 
 | Flag | Description |
 |------|-------------|
 | `--dry-run` | Show what would be restored without writing |
 | `--file` | Restore a specific file only (substring match) |
-| `--json` | Output as JSON |
+| `--force` | Skip divergence check — restore even if the file changed after the session |
+| `--json` | Output as JSON (includes `diverged` field per file) |
 
 ### `ggt find <query>`
 

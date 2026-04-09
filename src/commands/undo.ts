@@ -2,7 +2,7 @@ import { Args, Command, Flags } from "@oclif/core";
 import fs from "node:fs";
 import path from "node:path";
 import { ensureSynced } from "../lib/auto-sync.js";
-import { resolveSession } from "../lib/resolve-session.js";
+import { resolveSession, AmbiguousSessionError } from "../lib/resolve-session.js";
 import { getFileSnapshots, readSnapshot } from "../lib/file-history.js";
 
 export default class Undo extends Command {
@@ -22,6 +22,7 @@ export default class Undo extends Command {
   static override flags = {
     "dry-run": Flags.boolean({ description: "Show what would be restored without writing" }),
     file: Flags.string({ description: "Restore a specific file only (substring match)" }),
+    force: Flags.boolean({ description: "Skip divergence check — restore even if the file changed after the session" }),
     json: Flags.boolean({ description: "Output as JSON" }),
   };
 
@@ -30,7 +31,13 @@ export default class Undo extends Command {
     const db = await ensureSynced((msg) => this.log(msg));
     const dryRun = flags["dry-run"] ?? false;
 
-    const session = resolveSession(db, args.id);
+    let session;
+    try {
+      session = resolveSession(db, args.id);
+    } catch (e) {
+      if (e instanceof AmbiguousSessionError) this.error(e.message);
+      throw e;
+    }
     if (!session) {
       this.error(args.id ? `Session not found: ${args.id}` : "No sessions found in current project.");
     }
@@ -57,6 +64,7 @@ export default class Undo extends Command {
       lastVersion: number;
       action: "restore" | "delete"; // restore to v1, or delete if created in session
       currentExists: boolean;
+      diverged: boolean; // true if current file differs from session's final snapshot
     }
 
     const entries: RestoreEntry[] = [];
@@ -86,6 +94,7 @@ export default class Undo extends Command {
           lastVersion: snap.lastVersion,
           action: "restore",
           currentExists,
+          diverged: false, // computed later
         });
       } else {
         // No v1 on disk — file was created in this session
@@ -98,6 +107,7 @@ export default class Undo extends Command {
           lastVersion: snap.lastVersion,
           action: "delete",
           currentExists,
+          diverged: false, // computed later
         });
       }
     }
@@ -119,6 +129,15 @@ export default class Undo extends Command {
       return;
     }
 
+    // Check divergence status for each entry
+    for (const entry of filtered) {
+      if (!entry.currentExists) { entry.diverged = false; continue; }
+      const lastContent = readSnapshot(entry.historyDir, entry.hash, entry.lastVersion);
+      if (lastContent === null) { entry.diverged = false; continue; }
+      const currentContent = fs.readFileSync(entry.absolutePath, "utf-8");
+      entry.diverged = currentContent !== lastContent;
+    }
+
     // JSON output
     if (flags.json) {
       this.log(JSON.stringify({
@@ -130,6 +149,7 @@ export default class Undo extends Command {
           absolutePath: e.absolutePath,
           action: e.action,
           currentExists: e.currentExists,
+          diverged: e.diverged,
           versions: `v${e.firstVersion} → v${e.lastVersion}`,
         })),
       }, null, 2));
@@ -151,19 +171,19 @@ export default class Undo extends Command {
     for (const entry of filtered) {
       const shortPath = entry.filePath;
 
+      const divergeTag = entry.diverged ? "  \x1b[33m⚠ diverged\x1b[0m" : "";
+
       if (entry.action === "restore") {
         if (!entry.currentExists) {
-          // File was deleted after session — would recreate from v1
           this.log(`  \x1b[32m+ ${shortPath}\x1b[0m  \x1b[2m(recreate from v${entry.firstVersion})\x1b[0m`);
           restoreCount++;
         } else {
-          // Restore to v1
-          this.log(`  \x1b[33m~ ${shortPath}\x1b[0m  \x1b[2m(restore to v${entry.firstVersion})\x1b[0m`);
+          this.log(`  \x1b[33m~ ${shortPath}\x1b[0m  \x1b[2m(restore to v${entry.firstVersion})\x1b[0m${divergeTag}`);
           restoreCount++;
         }
       } else {
         if (entry.currentExists) {
-          this.log(`  \x1b[31m- ${shortPath}\x1b[0m  \x1b[2m(created in session, delete)\x1b[0m`);
+          this.log(`  \x1b[31m- ${shortPath}\x1b[0m  \x1b[2m(created in session, delete)\x1b[0m${divergeTag}`);
           deleteCount++;
         } else {
           this.log(`  \x1b[2m  ${shortPath} (already gone)\x1b[0m`);
@@ -184,13 +204,21 @@ export default class Undo extends Command {
       return;
     }
 
-    // Apply
+    // Apply — skip diverged files unless --force
     this.log("");
     let applied = 0;
     let errors = 0;
+    let skippedDiverged = 0;
 
     for (const entry of filtered) {
       try {
+        // Divergence guard
+        if (!flags.force && entry.diverged) {
+          this.log(`  \x1b[33mSKIP\x1b[0m ${entry.filePath}: file changed after session (use --force to override)`);
+          skippedDiverged++;
+          continue;
+        }
+
         if (entry.action === "restore") {
           const content = readSnapshot(entry.historyDir, entry.hash, entry.firstVersion);
           if (content === null) {
@@ -198,7 +226,6 @@ export default class Undo extends Command {
             errors++;
             continue;
           }
-          // Ensure parent directory exists
           const dir = path.dirname(entry.absolutePath);
           if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
           fs.writeFileSync(entry.absolutePath, content);
@@ -214,6 +241,10 @@ export default class Undo extends Command {
       }
     }
 
-    this.log(`\x1b[32mDone:\x1b[0m ${applied} file${applied !== 1 ? "s" : ""} restored${errors > 0 ? `, \x1b[31m${errors} error${errors !== 1 ? "s" : ""}\x1b[0m` : ""}`);
+    const suffix = [
+      errors > 0 ? `\x1b[31m${errors} error${errors !== 1 ? "s" : ""}\x1b[0m` : "",
+      skippedDiverged > 0 ? `\x1b[33m${skippedDiverged} skipped (diverged)\x1b[0m` : "",
+    ].filter(Boolean).join(", ");
+    this.log(`\x1b[32mDone:\x1b[0m ${applied} file${applied !== 1 ? "s" : ""} restored${suffix ? `, ${suffix}` : ""}`);
   }
 }

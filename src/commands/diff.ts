@@ -1,6 +1,6 @@
 import { Args, Command, Flags } from "@oclif/core";
 import { ensureSynced } from "../lib/auto-sync.js";
-import { resolveSession } from "../lib/resolve-session.js";
+import { resolveSession, AmbiguousSessionError } from "../lib/resolve-session.js";
 import { computeSessionDiff, formatStat, grepDiffHunks } from "../lib/diff.js";
 
 export default class Diff extends Command {
@@ -29,7 +29,13 @@ export default class Diff extends Command {
     const { args, flags } = await this.parse(Diff);
     const db = await ensureSynced((msg) => this.log(msg));
 
-    const session = resolveSession(db, args.id);
+    let session;
+    try {
+      session = resolveSession(db, args.id);
+    } catch (e) {
+      if (e instanceof AmbiguousSessionError) this.error(e.message);
+      throw e;
+    }
     if (!session) {
       this.error(args.id ? `Session not found: ${args.id}` : "No sessions found in current project.");
     }

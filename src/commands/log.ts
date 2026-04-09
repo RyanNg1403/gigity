@@ -2,7 +2,7 @@ import { Args, Command, Flags } from "@oclif/core";
 import fs from "node:fs";
 import path from "node:path";
 import { ensureSynced } from "../lib/auto-sync.js";
-import { resolveSession } from "../lib/resolve-session.js";
+import { resolveSession, AmbiguousSessionError } from "../lib/resolve-session.js";
 import { diffMatchesGrep, grepDiffHunks, unifiedDiff } from "../lib/diff.js";
 import { parseJsonl } from "../lib/jsonl.js";
 import {
@@ -44,7 +44,13 @@ export default class Log extends Command {
 
     // If --explain, run the explain flow
     if (flags.explain) {
-      const session = resolveSession(db, flags.session);
+      let session;
+      try {
+        session = resolveSession(db, flags.session);
+      } catch (e) {
+        if (e instanceof AmbiguousSessionError) this.error(e.message);
+        throw e;
+      }
       if (!session) {
         this.error(flags.session ? `Session not found: ${flags.session}` : "No sessions found in current project.");
       }

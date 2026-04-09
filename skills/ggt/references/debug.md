@@ -100,13 +100,19 @@ ggt undo                         # restore all files
 ggt undo abc123                  # specific session
 ggt undo --file=db.ts            # one file only
 ggt undo --file=db.ts --dry-run  # preview one file
+ggt undo --force                 # skip divergence check
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--dry-run` | Show what would be restored without writing |
 | `--file` | Restore a specific file only (substring match) |
-| `--json` | JSON output |
+| `--force` | Skip divergence check — restore even if the file changed after the session |
+| `--json` | JSON output (includes `diverged` field per file) |
+
+Safety:
+- **Divergence check:** Before overwriting, compares current file to the session's final snapshot. If the file was modified after the session (by another session, user, or git), the restore is skipped with a warning. Use `--force` to override.
+- **Ambiguous prefix:** If a session ID prefix matches multiple sessions, the command errors with a list of matches instead of silently picking one.
 
 Actions:
 - Files modified during the session → restored to pre-session state

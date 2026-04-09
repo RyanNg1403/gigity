@@ -70,9 +70,10 @@ Traces file modifications back to sessions — with timestamps, models, and the 
 ggt undo --dry-run                   # Preview (last session)
 ggt undo                             # Restore all files to pre-session state
 ggt undo abc123 --file=db.ts         # Specific session, one file
+ggt undo --force                     # Skip divergence check
 ```
 
-Reads original file snapshots and writes them back. Files created during the session are deleted. Works without git.
+Reads original file snapshots and writes them back. Files created during the session are deleted. Detects files that changed after the session and skips them unless `--force` is used. Works without git.
 
 ### `ggt cost` — How much am I spending?
 

@@ -9,7 +9,7 @@ description: >
 
 # ggt — git for AI coding sessions
 
-All commands auto-sync fresh data and are read-only (except `undo`). Session IDs support prefix matching (first 4-8 chars). All path flags resolve `.` to cwd.
+All commands auto-sync fresh data and are read-only (except `undo`). Session IDs support prefix matching (first 4-8 chars) — ambiguous prefixes error with a list of matches. All path flags resolve `.` to cwd.
 
 **Syntax:** `diff`, `undo`, `log --explain` take session ID as a **positional arg** (`ggt diff abc123`), not a flag. `log` and `blame` take **file** as a positional arg — they are file-scoped, not session-scoped. Use `sessions list`, `find`, or `cost` for session-level overview.
 
@@ -69,6 +69,7 @@ ggt log src/lib/db.ts --explain -L 40,50  # only edits affecting lines 40-50
 # Revert
 ggt undo --dry-run                        # preview first
 ggt undo --file=src/lib/db.ts             # one file only
+ggt undo --force                          # skip divergence check
 ```
 
 `diff`, `undo`, and `log --explain` default to the **last session in the current project** when no session ID is given.
