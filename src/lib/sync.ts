@@ -150,6 +150,7 @@ async function indexSession(
   let firstTimestamp: string | null = null;
   let lastTimestamp: string | null = null;
   let firstPrompt: string | null = indexEntry?.firstPrompt || null;
+  let jsonlBranch: string | null = null;
   const modelCounts: Record<string, number> = {};
   let seq = 0;
 
@@ -162,6 +163,9 @@ async function indexSession(
     }
     if (record.type === "user") {
       messageCount++;
+      if (!jsonlBranch && record.gitBranch) {
+        jsonlBranch = record.gitBranch as string;
+      }
       if (!firstPrompt && record.message?.content) {
         const content = record.message.content;
         if (typeof content === "string") {
@@ -219,7 +223,7 @@ async function indexSession(
       sessionId, projectId,
       firstPrompt || null, indexEntry?.summary || null, messageCount,
       indexEntry?.created || firstTimestamp, indexEntry?.modified || lastTimestamp,
-      indexEntry?.gitBranch || null, durationMs,
+      indexEntry?.gitBranch || jsonlBranch || null, durationMs,
       totalInputTokens, totalOutputTokens, totalCacheReadTokens, totalCacheCreationTokens,
       primaryModel, toolCallCount, compressionCount, jsonlPath, mtime,
       indexEntry?.isSidechain ? 1 : 0

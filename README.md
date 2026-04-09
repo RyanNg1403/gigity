@@ -75,6 +75,15 @@ ggt undo --force                     # Skip divergence check
 
 Reads original file snapshots and writes them back. Files created during the session are deleted. Detects files that changed after the session and skips them unless `--force` is used. Works without git.
 
+### `ggt compare` — Compare two sessions
+
+```bash
+ggt compare abc123 def456              # What's different between two attempts?
+ggt compare abc123 def456 --stat       # Summary only
+```
+
+Shows files unique to each session, identical shared files, and unified diffs for files that differ.
+
 ### `ggt cost` — How much am I spending?
 
 ```bash

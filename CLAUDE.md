@@ -46,6 +46,7 @@ All data comes from `~/.claude/`:
 | `ggt diff <id>` | Show file changes (edits/writes) in a session |
 | `ggt blame <file>` | Which sessions modified a file |
 | `ggt undo <id>` | Restore files to pre-session state |
+| `ggt compare <a> <b>` | Compare file changes between two sessions |
 | `ggt find <query>` | Find session ID by message content |
 | `ggt cost` | Token spend and estimated cost |
 | `ggt sessions list` | Browse sessions, filter by `--project` |

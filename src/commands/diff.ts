@@ -74,6 +74,7 @@ export default class Diff extends Command {
       this.log(JSON.stringify({
         sessionId: session.id,
         project: session.project_name,
+        branch: session.git_branch,
         createdAt: session.created_at,
         files: diffs.map((d) => ({
           path: d.filePath,
@@ -89,7 +90,8 @@ export default class Diff extends Command {
 
     const sid = session.id.slice(0, 8);
     const prompt = (session.first_prompt || "").slice(0, 80).replace(/\n/g, " ");
-    this.log(`\x1b[1mSession ${sid}\x1b[0m  ${session.project_name}  ${session.created_at.slice(0, 16)}`);
+    const branch = session.git_branch ? `  \x1b[35m${session.git_branch}\x1b[0m` : "";
+    this.log(`\x1b[1mSession ${sid}\x1b[0m  ${session.project_name}  ${session.created_at.slice(0, 16)}${branch}`);
     if (prompt) this.log(`\x1b[2m${prompt}\x1b[0m`);
     this.log("");
 

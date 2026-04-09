@@ -1,4 +1,5 @@
 import path from "node:path";
+import { execSync } from "node:child_process";
 import Database from "better-sqlite3";
 
 export interface ResolvedSession {
@@ -9,6 +10,7 @@ export interface ResolvedSession {
   model_used: string;
   project_path: string;
   project_name: string;
+  git_branch: string | null;
 }
 
 export class AmbiguousSessionError extends Error {
@@ -21,9 +23,24 @@ export class AmbiguousSessionError extends Error {
 }
 
 /**
+ * Detect the current git branch. Returns null if not in a git repo.
+ */
+export function getCurrentBranch(): string | null {
+  try {
+    return execSync("git rev-parse --abbrev-ref HEAD", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve a session by ID prefix, or default to the most recent session
  * in the current project if no ID is provided.
  *
+ * When defaulting (no ID), prefers sessions on the current git branch.
  * Throws AmbiguousSessionError if a prefix matches multiple sessions.
  */
 export function resolveSession(
@@ -32,7 +49,7 @@ export function resolveSession(
 ): ResolvedSession | null {
   const query = `
     SELECT s.id, s.jsonl_path, s.first_prompt, s.created_at, s.model_used,
-      p.original_path as project_path, p.name as project_name
+      s.git_branch, p.original_path as project_path, p.name as project_name
     FROM sessions s JOIN projects p ON s.project_id = p.id
   `;
 
@@ -51,8 +68,18 @@ export function resolveSession(
     throw new AmbiguousSessionError(idOrPrefix, matches.map((m) => m.id));
   }
 
-  // No ID — most recent session in current project
+  // No ID — most recent session in current project, prefer current branch
   const cwd = path.resolve(".");
+  const branch = getCurrentBranch();
+
+  if (branch) {
+    const branchMatch = db.prepare(
+      `${query} WHERE (p.original_path LIKE ? OR p.original_path = ?) AND s.git_branch = ? ORDER BY s.modified_at DESC LIMIT 1`,
+    ).get(`%${cwd}%`, cwd, branch) as ResolvedSession | undefined;
+    if (branchMatch) return branchMatch;
+  }
+
+  // Fallback: any branch in current project
   return (db.prepare(
     `${query} WHERE p.original_path LIKE ? OR p.original_path = ? ORDER BY s.modified_at DESC LIMIT 1`,
   ).get(`%${cwd}%`, cwd) as ResolvedSession | undefined) || null;

@@ -39,6 +39,7 @@ ggt blame db.ts --json
 | Flag | Description |
 |------|-------------|
 | `-L` | Line range (e.g. `40,50` or `42`). Traces who wrote those lines |
+| `--branch` | Filter by git branch |
 | `--limit` | Max results (default: 20) |
 | `--json` | JSON output |
 
@@ -67,6 +68,7 @@ ggt log src/lib/db.ts --explain -L 40,50           # only edits affecting lines 
 | `--explain` | Edit-by-edit breakdown with user prompt + Claude intent (default: last session) |
 | `--session` | Session ID or prefix for `--explain` |
 | `-L` | Line range for `--explain` (e.g. `40,50` or `42`). Only show edits affecting those lines |
+| `--branch` | Filter by git branch |
 | `--limit` | Max sessions (default: 20) |
 | `--json` | JSON output (works with `--explain` too — returns structured edits with motivations) |
 
@@ -120,3 +122,22 @@ Actions:
 - Files that no longer exist → recreated from snapshot
 
 Uses `~/.claude/file-history/` snapshots. Works without git.
+
+---
+
+## `ggt compare <session-a> <session-b>`
+
+Compare file changes between two sessions. Shows files unique to each, shared files, and diffs for files that differ.
+
+```bash
+ggt compare abc123 def456              # full diff A→B
+ggt compare abc123 def456 --stat       # summary only
+ggt compare abc123 def456 --file=db.ts # one file only
+ggt compare abc123 def456 --json       # structured output
+```
+
+| Flag | Description |
+|------|-------------|
+| `--stat` | Summary only (files changed, lines added/removed) |
+| `--file` | Filter to a specific file (substring match) |
+| `--json` | JSON output (includes session metadata, file lists, diffs) |

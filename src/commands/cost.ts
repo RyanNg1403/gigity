@@ -13,6 +13,7 @@ interface SessionRow {
   created_at: string;
   project_path: string;
   project_name: string;
+  git_branch: string | null;
 }
 
 export default class Cost extends Command {
@@ -29,8 +30,9 @@ export default class Cost extends Command {
 
   static override flags = {
     project: Flags.string({ description: "Filter by project (substring match)" }),
+    branch: Flags.string({ description: "Filter by git branch" }),
     all: Flags.boolean({ description: "All projects (default: current project only)" }),
-    by: Flags.string({ description: "Group by: model, day, project", options: ["model", "day", "project"] }),
+    by: Flags.string({ description: "Group by: model, day, project, branch", options: ["model", "day", "project", "branch"] }),
     after: Flags.string({ description: "Sessions after this date (YYYY-MM-DD)" }),
     before: Flags.string({ description: "Sessions before this date (YYYY-MM-DD)" }),
     limit: Flags.integer({ description: "Max sessions for top-sessions view", default: 10 }),
@@ -67,13 +69,17 @@ export default class Cost extends Command {
       conditions.push("s.created_at <= ?");
       params.push(flags.before + "T23:59:59");
     }
+    if (flags.branch) {
+      conditions.push("s.git_branch = ?");
+      params.push(flags.branch);
+    }
 
     const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
 
     const rows = db.prepare(`
       SELECT s.id, s.model_used, s.total_input_tokens, s.total_output_tokens,
         s.total_cache_read_tokens, s.total_cache_creation_tokens,
-        s.created_at, p.original_path as project_path, p.name as project_name
+        s.created_at, s.git_branch, p.original_path as project_path, p.name as project_name
       FROM sessions s JOIN projects p ON s.project_id = p.id
       ${where}
       ORDER BY s.created_at DESC
@@ -174,6 +180,8 @@ export default class Cost extends Command {
         key = r.model_used || "unknown";
       } else if (groupBy === "day") {
         key = (r.created_at || "").slice(0, 10);
+      } else if (groupBy === "branch") {
+        key = r.git_branch || "(no branch)";
       } else {
         key = r.project_path || r.project_name || "unknown";
       }

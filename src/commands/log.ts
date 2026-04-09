@@ -33,6 +33,7 @@ export default class Log extends Command {
     grep: Flags.string({ description: "Only show sessions where the diff matches this pattern" }),
     explain: Flags.boolean({ description: "Show edit-by-edit motivations (default: last session, or use --session)" }),
     session: Flags.string({ description: "Session ID or prefix for --explain (default: last session in current project)" }),
+    branch: Flags.string({ description: "Filter by git branch" }),
     limit: Flags.integer({ description: "Max sessions", default: 20 }),
     line: Flags.string({ char: "L", description: "Line range for --explain (e.g. 40,50 or 42). Only show edits affecting those lines" }),
     json: Flags.boolean({ description: "Output as JSON" }),
@@ -60,6 +61,8 @@ export default class Log extends Command {
 
     // Find sessions that touched this file via tool_calls
     const resolvedPath = path.isAbsolute(args.file) ? args.file : path.resolve(args.file);
+    const logBranchClause = flags.branch ? "AND s.git_branch = ?" : "";
+    const logBranchParams = flags.branch ? [flags.branch] : [];
 
     const query = `
       SELECT DISTINCT tc.session_id, s.jsonl_path, s.created_at, s.model_used, s.first_prompt,
@@ -70,12 +73,13 @@ export default class Log extends Command {
       WHERE tc.file_path IS NOT NULL
         AND tc.tool_name IN ('Edit', 'Write')
         AND tc.file_path LIKE ?
+        ${logBranchClause}
       ORDER BY s.created_at ASC
       LIMIT ?
     `;
 
     // Try exact resolved path first
-    let rows = db.prepare(query).all(resolvedPath, flags.limit) as Record<string, unknown>[];
+    let rows = db.prepare(query).all(resolvedPath, ...logBranchParams, flags.limit) as Record<string, unknown>[];
     if (rows.length === 0) {
       // Substring fallback — scope to current project to avoid cross-project noise
       const cwd = path.resolve(".");
@@ -89,10 +93,11 @@ export default class Log extends Command {
           AND tc.tool_name IN ('Edit', 'Write')
           AND tc.file_path LIKE ?
           AND (p.original_path LIKE ? OR p.original_path = ?)
+          ${logBranchClause}
         ORDER BY s.created_at ASC
         LIMIT ?
       `;
-      rows = db.prepare(scopedQuery).all(`%${args.file}%`, `%${cwd}%`, cwd, flags.limit) as Record<string, unknown>[];
+      rows = db.prepare(scopedQuery).all(`%${args.file}%`, `%${cwd}%`, cwd, ...logBranchParams, flags.limit) as Record<string, unknown>[];
     }
 
     if (rows.length === 0) {

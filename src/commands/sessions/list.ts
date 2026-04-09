@@ -83,8 +83,9 @@ export default class SessionsList extends Command {
       const prompt = ((r.first_prompt as string) || "").slice(0, 200).replace(/\n/g, " ");
       const created = ((r.created_at as string) || "").slice(0, 16);
       const model = ((r.model_used as string) || "?").replace("claude-", "");
+      const branch = r.git_branch ? `  \x1b[35m${r.git_branch}\x1b[0m` : "";
       this.log(
-        `  ${(r.id as string).slice(0, 8)}  ${created}  ${r.project_name}  ${model}  msgs=${r.message_count}  tools=${r.tool_call_count}`
+        `  ${(r.id as string).slice(0, 8)}  ${created}  ${r.project_name}  ${model}  msgs=${r.message_count}  tools=${r.tool_call_count}${branch}`
       );
       if (prompt) this.log(`         ${prompt}`);
     }

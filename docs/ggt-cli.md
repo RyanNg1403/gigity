@@ -30,6 +30,7 @@ ggt log src/lib/db.ts --explain --session=dab1f061 # Motivations (specific sessi
 | `--grep` | Only show sessions where the diff contains this pattern (auto-shows diff) |
 | `--explain` | Show edit-by-edit motivations (default: last session) |
 | `--session` | Session ID or prefix for `--explain` |
+| `--branch` | Filter by git branch |
 | `--limit` | Max sessions (default: 20) |
 | `--json` | Output as JSON (works with `--explain` too) |
 
@@ -67,8 +68,26 @@ ggt blame db.ts --limit=5 --json
 | Flag | Description |
 |------|-------------|
 | `-L` | Line range (e.g. `40,50` or `42`). Traces who wrote those lines |
+| `--branch` | Filter by git branch |
 | `--limit` | Max results (default: 20) |
 | `--json` | Output as JSON |
+
+### `ggt compare <session-a> <session-b>`
+
+Compare file changes between two sessions. Shows files unique to each, identical shared files, and unified diffs for files that differ.
+
+```bash
+ggt compare abc123 def456              # Full diff A→B
+ggt compare abc123 def456 --stat       # Summary only
+ggt compare abc123 def456 --file=db.ts # One file
+ggt compare abc123 def456 --json       # Structured output
+```
+
+| Flag | Description |
+|------|-------------|
+| `--stat` | Summary only (files changed, lines added/removed) |
+| `--file` | Filter to a specific file (substring match) |
+| `--json` | JSON output (session metadata, file lists, diffs) |
 
 ### `ggt undo <session-id>`
 
@@ -104,8 +123,9 @@ ggt diff $(ggt find "auth bug" | awk '{print $1}')  # Pipe into diff
 
 | Flag | Description |
 |------|-------------|
-| `--all` | Search all projects (default: current project only) |
+| `--all` | Search all projects and branches |
 | `--project` | Filter by a specific project (substring match) |
+| `--branch` | Filter by git branch (default: current branch unless `--all`) |
 | `--limit` | Max sessions to return (default: 1) |
 | `--json` | Output as JSON |
 
@@ -127,7 +147,8 @@ Pricing is based on the official Anthropic API rates (per million tokens). Cache
 |------|-------------|
 | `--all` | All projects (default: current project only) |
 | `--project` | Filter by project (substring match) |
-| `--by` | Group by: `model`, `day`, or `project` |
+| `--branch` | Filter by git branch |
+| `--by` | Group by: `model`, `day`, `project`, or `branch` |
 | `--after` | Sessions after this date (YYYY-MM-DD) |
 | `--before` | Sessions before this date (YYYY-MM-DD) |
 | `--limit` | Max sessions in top-sessions view (default: 10) |

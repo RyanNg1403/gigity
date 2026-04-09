@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { ensureSynced, forceSync } from "../lib/auto-sync.js";
+import { getCurrentBranch } from "../lib/resolve-session.js";
 import { extractReadableText, scoreMatch, SKIP_RECORD_TYPES } from "../lib/search.js";
 
 interface FindResult {
@@ -10,12 +11,14 @@ interface FindResult {
   score: number;
   modifiedAt: string;
   project: string;
+  snippet: string;
 }
 
 function searchSessions(
   db: Database.Database,
   query: string,
   projectFilter: string | null,
+  branchFilter: string | null,
   limit: number,
 ): FindResult[] {
   const queryLower = query.toLowerCase();
@@ -23,22 +26,27 @@ function searchSessions(
 
   let sessions: { id: string; jsonl_path: string; modified_at: string; project_path: string }[];
 
-  if (projectFilter === null) {
-    sessions = db.prepare(`
-      SELECT s.id, s.jsonl_path, s.modified_at, p.original_path as project_path
-      FROM sessions s JOIN projects p ON s.project_id = p.id
-      ORDER BY s.modified_at DESC
-    `).all() as typeof sessions;
-  } else {
-    sessions = db.prepare(`
-      SELECT s.id, s.jsonl_path, s.modified_at, p.original_path as project_path
-      FROM sessions s JOIN projects p ON s.project_id = p.id
-      WHERE p.original_path LIKE ? OR p.name LIKE ?
-      ORDER BY s.modified_at DESC
-    `).all(`%${projectFilter}%`, `%${projectFilter}%`) as typeof sessions;
+  const conditions: string[] = [];
+  const params: string[] = [];
+
+  if (projectFilter !== null) {
+    conditions.push("(p.original_path LIKE ? OR p.name LIKE ?)");
+    params.push(`%${projectFilter}%`, `%${projectFilter}%`);
+  }
+  if (branchFilter) {
+    conditions.push("s.git_branch = ?");
+    params.push(branchFilter);
   }
 
-  const bestBySession = new Map<string, { score: number; modified_at: string; project: string }>();
+  const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+  sessions = db.prepare(`
+    SELECT s.id, s.jsonl_path, s.modified_at, p.original_path as project_path
+    FROM sessions s JOIN projects p ON s.project_id = p.id
+    ${where}
+    ORDER BY s.modified_at DESC
+  `).all(...params) as typeof sessions;
+
+  const bestBySession = new Map<string, { score: number; modified_at: string; project: string; snippet: string }>();
 
   for (const sess of sessions) {
     if (bestBySession.size >= limit * 3) break;
@@ -51,12 +59,15 @@ function searchSessions(
         if (!record.type || SKIP_RECORD_TYPES.has(record.type)) continue;
 
         const text = extractReadableText(record);
-        const { score } = scoreMatch(text.toLowerCase(), queryLower, queryTerms);
+        const { score, matchIdx } = scoreMatch(text.toLowerCase(), queryLower, queryTerms);
 
         if (score > 0) {
           const existing = bestBySession.get(sess.id);
           if (!existing || score > existing.score) {
-            bestBySession.set(sess.id, { score, modified_at: sess.modified_at, project: sess.project_path });
+            const start = Math.max(0, matchIdx >= 0 ? matchIdx - 30 : 0);
+            const end = Math.min(text.length, start + 150);
+            const snippet = (start > 0 ? "..." : "") + text.slice(start, end).replace(/\n/g, " ") + (end < text.length ? "..." : "");
+            bestBySession.set(sess.id, { score, modified_at: sess.modified_at, project: sess.project_path, snippet });
           }
           break;
         }
@@ -69,7 +80,7 @@ function searchSessions(
   return [...bestBySession.entries()]
     .sort((a, b) => b[1].score - a[1].score)
     .slice(0, limit)
-    .map(([id, info]) => ({ sessionId: id, score: info.score, modifiedAt: info.modified_at, project: info.project }));
+    .map(([id, info]) => ({ sessionId: id, score: info.score, modifiedAt: info.modified_at, project: info.project, snippet: info.snippet }));
 }
 
 export default class Find extends Command {
@@ -88,7 +99,8 @@ export default class Find extends Command {
 
   static override flags = {
     project: Flags.string({ description: "Filter by project (substring match)" }),
-    all: Flags.boolean({ description: "Search all projects (default: current project only)" }),
+    branch: Flags.string({ description: "Filter by git branch (default: current branch unless --all)" }),
+    all: Flags.boolean({ description: "Search all projects and branches" }),
     limit: Flags.integer({ description: "Max sessions to return", default: 1 }),
     json: Flags.boolean({ description: "Output as JSON" }),
   };
@@ -103,12 +115,19 @@ export default class Find extends Command {
         ? (flags.project === "." || flags.project === "./" ? path.resolve(".") : flags.project)
         : path.resolve(".");
 
-    let results = searchSessions(db, args.query, projectFilter, flags.limit);
+    const branchFilter = flags.all ? null : (flags.branch ?? getCurrentBranch());
 
-    // No results — force a fresh sync and retry
+    let results = searchSessions(db, args.query, projectFilter, branchFilter, flags.limit);
+
+    // No results on current branch — retry without branch filter
+    if (results.length === 0 && branchFilter && !flags.branch) {
+      results = searchSessions(db, args.query, projectFilter, null, flags.limit);
+    }
+
+    // Still nothing — force a fresh sync and retry
     if (results.length === 0) {
       db = await forceSync((msg) => this.log(msg));
-      results = searchSessions(db, args.query, projectFilter, flags.limit);
+      results = searchSessions(db, args.query, projectFilter, null, flags.limit);
     }
 
     if (results.length === 0) {
@@ -121,12 +140,14 @@ export default class Find extends Command {
         sessionId: r.sessionId,
         lastActive: r.modifiedAt,
         project: r.project,
+        snippet: r.snippet,
       })), null, 2));
       return;
     }
 
     for (const r of results) {
       this.log(`${r.sessionId}  ${(r.modifiedAt || "").slice(0, 16)}  ${r.project}`);
+      if (r.snippet) this.log(`  \x1b[2m${r.snippet.slice(0, 200)}\x1b[0m`);
     }
   }
 }

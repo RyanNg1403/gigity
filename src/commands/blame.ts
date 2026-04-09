@@ -27,6 +27,7 @@ export default class Blame extends Command {
 
   static override flags = {
     line: Flags.string({ char: "L", description: "Line range (e.g. 40,50 or 42). Finds which session last changed those lines" }),
+    branch: Flags.string({ description: "Filter by git branch" }),
     limit: Flags.integer({ description: "Max results", default: 20 }),
     json: Flags.boolean({ description: "Output as JSON" }),
   };
@@ -37,12 +38,14 @@ export default class Blame extends Command {
 
     // If -L is specified, run line-range blame
     if (flags.line) {
-      await this.lineBlame(db, args.file, flags.line, flags.json ?? false);
+      await this.lineBlame(db, args.file, flags.line, flags.json ?? false, flags.branch);
       return;
     }
 
     // Standard blame
     const resolvedPath = path.isAbsolute(args.file) ? args.file : path.resolve(args.file);
+    const branchClause = flags.branch ? "AND s.git_branch = ?" : "";
+    const branchParams = flags.branch ? [flags.branch] : [];
 
     const query = `
       SELECT tc.file_path, tc.tool_name, tc.timestamp,
@@ -54,11 +57,12 @@ export default class Blame extends Command {
       WHERE tc.file_path IS NOT NULL
         AND tc.tool_name IN ('Edit', 'Write')
         AND tc.file_path LIKE ?
+        ${branchClause}
       ORDER BY tc.timestamp DESC
       LIMIT ?
     `;
 
-    let rows = db.prepare(query).all(resolvedPath, flags.limit) as Record<string, unknown>[];
+    let rows = db.prepare(query).all(resolvedPath, ...branchParams, flags.limit) as Record<string, unknown>[];
     if (rows.length === 0) {
       const cwd = path.resolve(".");
       const scopedQuery = `
@@ -72,10 +76,11 @@ export default class Blame extends Command {
           AND tc.tool_name IN ('Edit', 'Write')
           AND tc.file_path LIKE ?
           AND (p.original_path LIKE ? OR p.original_path = ?)
+          ${branchClause}
         ORDER BY tc.timestamp DESC
         LIMIT ?
       `;
-      rows = db.prepare(scopedQuery).all(`%${args.file}%`, `%${cwd}%`, cwd, flags.limit) as Record<string, unknown>[];
+      rows = db.prepare(scopedQuery).all(`%${args.file}%`, `%${cwd}%`, cwd, ...branchParams, flags.limit) as Record<string, unknown>[];
     }
 
     if (rows.length === 0) {
@@ -144,6 +149,7 @@ export default class Blame extends Command {
     file: string,
     lineRange: string,
     json: boolean,
+    branch?: string,
   ) {
     // Parse line range: "42" or "40,50"
     const parts = lineRange.split(",").map((s) => parseInt(s.trim(), 10));
@@ -178,6 +184,8 @@ export default class Blame extends Command {
     this.log("");
 
     // Find sessions that touched this file (reverse chronological)
+    const lbBranchClause = branch ? "AND s.git_branch = ?" : "";
+    const lbBranchParams = branch ? [branch] : [];
     const sessions = db.prepare(`
       SELECT DISTINCT s.id, s.jsonl_path, s.created_at, s.model_used, s.first_prompt,
         p.original_path as project_path, p.name as project_name
@@ -186,8 +194,9 @@ export default class Blame extends Command {
       JOIN projects p ON s.project_id = p.id
       WHERE tc.file_path = ?
         AND tc.tool_name IN ('Edit', 'Write')
+        ${lbBranchClause}
       ORDER BY s.created_at DESC
-    `).all(resolvedPath) as Record<string, unknown>[];
+    `).all(resolvedPath, ...lbBranchParams) as Record<string, unknown>[];
 
     if (sessions.length === 0) {
       this.log("No sessions found that modified this file.");
