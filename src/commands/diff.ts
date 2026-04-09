@@ -64,6 +64,7 @@ export default class Diff extends Command {
     }
 
     if (flags.json) {
+      const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
       this.log(JSON.stringify({
         sessionId: session.id,
         project: session.project_name,
@@ -73,6 +74,7 @@ export default class Diff extends Command {
           linesAdded: d.linesAdded,
           linesRemoved: d.linesRemoved,
           isNew: d.isNew,
+          diff: stripAnsi(d.diffText),
         })),
         rejected,
       }, null, 2));

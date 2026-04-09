@@ -31,7 +31,7 @@ ggt log src/lib/db.ts --explain --session=dab1f061 # Motivations (specific sessi
 | `--explain` | Show edit-by-edit motivations (default: last session) |
 | `--session` | Session ID or prefix for `--explain` |
 | `--limit` | Max sessions (default: 20) |
-| `--json` | Output as JSON |
+| `--json` | Output as JSON (works with `--explain` too) |
 
 ### `ggt diff <session-id>`
 

@@ -13,6 +13,8 @@ All commands auto-sync fresh data and are read-only (except `undo`). Session IDs
 
 **Syntax:** `diff`, `undo`, `log --explain` take session ID as a **positional arg** (`ggt diff abc123`), not a flag. `log` and `blame` take **file** as a positional arg — they are file-scoped, not session-scoped. Use `sessions list`, `find`, or `cost` for session-level overview.
 
+**Output parsing:** Use `--json` when you need to extract specific fields (session IDs, scores, costs). Use `--no-color` on `diff`, `log`, `blame` to strip ANSI escape codes for cleaner text parsing. Both flags work on all commands.
+
 ---
 
 ## Context efficiency rules

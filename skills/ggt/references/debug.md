@@ -18,7 +18,7 @@ ggt diff --json                  # machine-readable
 | `--stat` | Summary only (files changed, insertions/deletions) |
 | `--file` | Filter to a specific file path (substring match) |
 | `--grep` | Only show diff hunks where changed lines match this pattern |
-| `--json` | JSON output |
+| `--json` | JSON output (includes `diff` text per file, ANSI-stripped) |
 
 Uses `~/.claude/file-history/` snapshots to compute true net diffs (first state → final state). Falls back to per-edit extraction for sessions without file-history.
 
@@ -68,7 +68,7 @@ ggt log src/lib/db.ts --explain -L 40,50           # only edits affecting lines 
 | `--session` | Session ID or prefix for `--explain` |
 | `-L` | Line range for `--explain` (e.g. `40,50` or `42`). Only show edits affecting those lines |
 | `--limit` | Max sessions (default: 20) |
-| `--json` | JSON output |
+| `--json` | JSON output (works with `--explain` too — returns structured edits with motivations) |
 
 ### `--explain` output structure
 

@@ -50,7 +50,7 @@ export default class Log extends Command {
       if (!session) {
         this.error(flags.session ? `Session not found: ${flags.session}` : "No sessions found in current project.");
       }
-      await this.runExplain(session, args.file, { grep: flags.grep, lineRange: flags.line });
+      await this.runExplain(session, args.file, { grep: flags.grep, lineRange: flags.line, json: flags.json });
       return;
     }
 
@@ -191,7 +191,7 @@ export default class Log extends Command {
   private async runExplain(
     session: import("../lib/resolve-session.js").ResolvedSession,
     file: string,
-    opts: { grep?: string; lineRange?: string } = {},
+    opts: { grep?: string; lineRange?: string; json?: boolean } = {},
   ) {
     const sessionId = session.id;
     const jsonlPath = session.jsonl_path;
@@ -305,6 +305,33 @@ export default class Log extends Command {
 
     // Build uuid map for chain walking
     const uuidMap = await buildUuidMap(jsonlPath);
+
+    // JSON output
+    if (opts.json) {
+      const jsonEdits = filteredEdits.map((edit) => {
+        const ctx = traceEditContext(uuidMap, edit.uuid);
+        return {
+          tool: edit.toolName,
+          filePath: edit.filePath,
+          timestamp: edit.timestamp,
+          userPrompt: ctx.userPrompt || null,
+          claudeIntent: ctx.claudeIntent || null,
+          oldString: edit.oldString || null,
+          newString: edit.newString || null,
+          content: edit.content || null,
+        };
+      });
+      this.log(JSON.stringify({
+        sessionId,
+        file,
+        date: session.created_at.slice(0, 10),
+        model: (session.model_used || "").replace("claude-", ""),
+        editsShown: filteredEdits.length,
+        editsTotal: edits.length,
+        edits: jsonEdits,
+      }, null, 2));
+      return;
+    }
 
     // Header
     const sid = sessionId.slice(0, 8);
